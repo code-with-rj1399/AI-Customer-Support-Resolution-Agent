@@ -6,251 +6,77 @@
   <meta name="description" content="AI Customer Support Resolution Agent" />
   <title>Support Copilot</title>
   <style>
-    :root {
-      --bg: #0b0d10;
-      --panel: #11151a;
-      --panel-2: #171c22;
-      --border: #252c34;
-      --text: #f4f6f8;
-      --muted: #8e99a6;
-      --accent: #7c5cff;
-      --accent-2: #9b86ff;
-      --user: #1d2330;
-      --success: #4ade80;
-      --danger: #fb7185;
-      --shadow: 0 20px 60px rgba(0,0,0,.28);
-    }
-
-    * { box-sizing: border-box; }
-    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    button, textarea { font: inherit; }
-    button { cursor: pointer; }
-
-    .app { min-height: 100vh; display: grid; grid-template-columns: 270px minmax(0, 1fr); }
-    .sidebar { border-right: 1px solid var(--border); background: #0d1014; padding: 22px 16px; display: flex; flex-direction: column; gap: 20px; }
-    .brand { display: flex; align-items: center; gap: 11px; padding: 4px 8px 18px; }
-    .brand-mark { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, var(--accent), #4f46e5); display: grid; place-items: center; font-weight: 800; box-shadow: 0 8px 24px rgba(124,92,255,.25); }
-    .brand-title { font-size: 14px; font-weight: 700; letter-spacing: -.01em; }
-    .brand-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
-    .new-chat { width: 100%; border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: 10px; padding: 11px 13px; text-align: left; font-weight: 650; }
-    .new-chat:hover { border-color: #3a424d; background: var(--panel-2); }
-    .side-label { padding: 0 8px; color: #687482; font-size: 10px; text-transform: uppercase; letter-spacing: .12em; font-weight: 700; }
-    .scenario { border: 1px solid transparent; background: transparent; color: #c5ccd4; border-radius: 9px; padding: 10px 11px; width: 100%; text-align: left; }
-    .scenario:hover { background: var(--panel); border-color: var(--border); }
-    .scenario strong { display: block; font-size: 12px; margin-bottom: 3px; }
-    .scenario span { font-size: 11px; color: var(--muted); }
-    .sidebar-footer { margin-top: auto; padding: 12px 8px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; line-height: 1.5; }
-    .status { display: inline-flex; align-items: center; gap: 6px; color: #b8c2cc; margin-bottom: 5px; }
-    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); box-shadow: 0 0 10px rgba(74,222,128,.5); }
-
-    .main { min-width: 0; display: flex; flex-direction: column; }
-    .topbar { height: 64px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 28px; background: rgba(11,13,16,.82); backdrop-filter: blur(10px); position: sticky; top: 0; z-index: 2; }
-    .top-title { font-size: 14px; font-weight: 700; }
-    .top-meta { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; }
-    .pill { border: 1px solid var(--border); background: var(--panel); padding: 6px 9px; border-radius: 999px; }
-
-    .chat { width: min(900px, 100%); margin: 0 auto; padding: 34px 28px 150px; flex: 1; }
-    .hero { padding: 30px 0 24px; }
-    .hero h1 { font-size: clamp(27px, 4vw, 40px); letter-spacing: -.04em; margin: 0 0 9px; }
-    .hero p { color: var(--muted); margin: 0; max-width: 650px; line-height: 1.6; font-size: 14px; }
-    .hero-badges { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 18px; }
-    .badge { font-size: 10px; color: #c4cbd4; background: var(--panel); border: 1px solid var(--border); padding: 6px 9px; border-radius: 999px; }
-
-    .messages { display: flex; flex-direction: column; gap: 20px; }
-    .message { display: grid; grid-template-columns: 34px minmax(0,1fr); gap: 12px; align-items: start; }
-    .avatar { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; font-size: 12px; font-weight: 800; background: var(--panel-2); border: 1px solid var(--border); }
-    .message.user .avatar { background: #202737; }
-    .message-body { min-width: 0; }
-    .message-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-    .message-name { font-size: 12px; font-weight: 700; }
-    .message-time { color: #697582; font-size: 10px; }
-    .bubble { color: #dce1e7; line-height: 1.65; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
-    .message.user .bubble { background: var(--user); border: 1px solid #2a3343; border-radius: 14px; padding: 12px 14px; display: inline-block; max-width: 760px; }
-    .message.agent .bubble { padding-top: 1px; }
-    .tool-trace { margin-top: 12px; border: 1px solid var(--border); border-radius: 12px; background: #0f1317; overflow: hidden; }
-    .trace-head { padding: 10px 12px; display: flex; align-items: center; justify-content: space-between; font-size: 11px; font-weight: 700; color: #c3cbd4; }
-    .trace-list { border-top: 1px solid var(--border); }
-    .trace-row { display: flex; align-items: center; gap: 9px; padding: 9px 12px; border-bottom: 1px solid #1c2229; font-size: 11px; color: #9ea8b3; }
-    .trace-row:last-child { border-bottom: 0; }
-    .trace-check { width: 17px; height: 17px; border-radius: 50%; background: rgba(74,222,128,.1); color: var(--success); display: grid; place-items: center; font-size: 10px; }
-    .trace-code { color: #d5dbe2; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-
-    .composer-wrap { position: fixed; bottom: 0; left: 270px; right: 0; background: linear-gradient(transparent, var(--bg) 30%); padding: 32px 28px 22px; z-index: 3; }
-    .composer { width: min(900px, 100%); margin: 0 auto; }
-    .composer-box { background: #14191f; border: 1px solid #2b333d; border-radius: 15px; box-shadow: var(--shadow); padding: 10px; }
-    textarea { width: 100%; resize: none; min-height: 46px; max-height: 150px; border: 0; outline: 0; background: transparent; color: var(--text); padding: 8px 9px; line-height: 1.5; font-size: 14px; }
-    textarea::placeholder { color: #697582; }
-    .composer-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 2px 0 7px; }
-    .hint { color: #65707c; font-size: 10px; }
-    .send { width: 38px; height: 38px; border: 0; border-radius: 10px; background: var(--accent); color: white; font-weight: 800; }
-    .send:hover { background: var(--accent-2); }
-    .send:disabled { opacity: .45; cursor: not-allowed; }
-    .error { color: var(--danger); font-size: 12px; margin-top: 9px; display: none; }
-
-    @media (max-width: 760px) {
-      .app { grid-template-columns: 1fr; }
-      .sidebar { display: none; }
-      .topbar { padding: 0 16px; }
-      .chat { padding: 24px 16px 145px; }
-      .composer-wrap { left: 0; padding: 28px 12px 12px; }
-      .hero { padding-top: 12px; }
-    }
+    :root { --bg:#0b0d10; --panel:#11151a; --panel-2:#171c22; --border:#252c34; --text:#f4f6f8; --muted:#8e99a6; --accent:#7c5cff; --accent-2:#9b86ff; --user:#1d2330; --success:#4ade80; --danger:#fb7185; --shadow:0 20px 60px rgba(0,0,0,.28); }
+    *{box-sizing:border-box} html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif} button,textarea{font:inherit} button{cursor:pointer}
+    .app{min-height:100vh;display:grid;grid-template-columns:270px minmax(0,1fr)} .sidebar{border-right:1px solid var(--border);background:#0d1014;padding:22px 16px;display:flex;flex-direction:column;gap:20px}.brand{display:flex;align-items:center;gap:11px;padding:4px 8px 18px}.brand-mark{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--accent),#4f46e5);display:grid;place-items:center;font-weight:800}.brand-title{font-size:14px;font-weight:700}.brand-sub{font-size:11px;color:var(--muted);margin-top:2px}.new-chat{width:100%;border:1px solid var(--border);background:var(--panel);color:var(--text);border-radius:10px;padding:11px 13px;text-align:left;font-weight:650}.new-chat:hover,.scenario:hover{background:var(--panel-2);border-color:#3a424d}.side-label{padding:0 8px;color:#687482;font-size:10px;text-transform:uppercase;letter-spacing:.12em;font-weight:700}.scenario{border:1px solid transparent;background:transparent;color:#c5ccd4;border-radius:9px;padding:10px 11px;width:100%;text-align:left}.scenario strong{display:block;font-size:12px;margin-bottom:3px}.scenario span{font-size:11px;color:var(--muted)}.sidebar-footer{margin-top:auto;padding:12px 8px;border-top:1px solid var(--border);color:var(--muted);font-size:11px;line-height:1.5}.status{display:inline-flex;align-items:center;gap:6px;color:#b8c2cc;margin-bottom:5px}.dot{width:7px;height:7px;border-radius:50%;background:var(--success);box-shadow:0 0 10px rgba(74,222,128,.5)}
+    .main{min-width:0;display:flex;flex-direction:column}.topbar{height:64px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 28px;background:rgba(11,13,16,.82);backdrop-filter:blur(10px);position:sticky;top:0;z-index:2}.top-title{font-size:14px;font-weight:700}.top-meta{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:11px}.pill{border:1px solid var(--border);background:var(--panel);padding:6px 9px;border-radius:999px}
+    .chat{width:min(900px,100%);margin:0 auto;padding:34px 28px 150px;flex:1}.hero{padding:30px 0 24px}.hero h1{font-size:clamp(27px,4vw,40px);letter-spacing:-.04em;margin:0 0 9px}.hero p{color:var(--muted);margin:0;max-width:650px;line-height:1.6;font-size:14px}.hero-badges{display:flex;gap:7px;flex-wrap:wrap;margin-top:18px}.badge{font-size:10px;color:#c4cbd4;background:var(--panel);border:1px solid var(--border);padding:6px 9px;border-radius:999px}
+    .messages{display:flex;flex-direction:column;gap:20px}.message{display:grid;grid-template-columns:34px minmax(0,1fr);gap:12px;align-items:start}.avatar{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-size:12px;font-weight:800;background:var(--panel-2);border:1px solid var(--border)}.message.user .avatar{background:#202737}.message-body{min-width:0}.message-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}.message-name{font-size:12px;font-weight:700}.message-time{color:#697582;font-size:10px}.bubble{color:#dce1e7;line-height:1.65;font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}.message.user .bubble{background:var(--user);border:1px solid #2a3343;border-radius:14px;padding:12px 14px;display:inline-block;max-width:760px}.message.agent .bubble{padding-top:1px}
+    .tool-trace{margin-top:12px;border:1px solid var(--border);border-radius:12px;background:#0f1317;overflow:hidden}.trace-head{padding:10px 12px;display:flex;align-items:center;justify-content:space-between;font-size:11px;font-weight:700;color:#c3cbd4}.trace-list{border-top:1px solid var(--border)}.trace-row{display:flex;align-items:center;gap:9px;padding:9px 12px;border-bottom:1px solid #1c2229;font-size:11px;color:#9ea8b3}.trace-row:last-child{border-bottom:0}.trace-check{width:17px;height:17px;border-radius:50%;background:rgba(74,222,128,.1);color:var(--success);display:grid;place-items:center;font-size:10px}.trace-code{color:#d5dbe2;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.trace-time{margin-left:auto;color:#687482}
+    .composer-wrap{position:fixed;bottom:0;left:270px;right:0;background:linear-gradient(transparent,var(--bg) 30%);padding:32px 28px 22px;z-index:3}.composer{width:min(900px,100%);margin:0 auto}.composer-box{background:#14191f;border:1px solid #2b333d;border-radius:15px;box-shadow:var(--shadow);padding:10px}textarea{width:100%;resize:none;min-height:46px;max-height:150px;border:0;outline:0;background:transparent;color:var(--text);padding:8px 9px;line-height:1.5;font-size:14px}textarea::placeholder{color:#697582}.composer-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:4px 2px 0 7px}.hint{color:#65707c;font-size:10px}.send{width:38px;height:38px;border:0;border-radius:10px;background:var(--accent);color:white;font-weight:800}.send:hover{background:var(--accent-2)}.send:disabled{opacity:.45;cursor:not-allowed}.error{color:var(--danger);font-size:12px;margin-top:9px;display:none}
+    @media(max-width:760px){.app{grid-template-columns:1fr}.sidebar{display:none}.topbar{padding:0 16px}.chat{padding:24px 16px 145px}.composer-wrap{left:0;padding:28px 12px 12px}.hero{padding-top:12px}}
   </style>
 </head>
 <body>
-  <div class="app" id="app">
-    <aside class="sidebar" aria-label="Conversation sidebar">
-      <div class="brand">
-        <div class="brand-mark">AI</div>
-        <div><div class="brand-title">Support Copilot</div><div class="brand-sub">Customer Resolution Agent</div></div>
-      </div>
-      <button class="new-chat" id="newChat" type="button">＋ New conversation</button>
-      <div class="side-label">Try a scenario</div>
-      <button class="scenario" type="button" data-prompt="My order 1002 is five days late. I want a refund."><strong>Delayed order</strong><span>Investigate and resolve a refund request</span></button>
-      <button class="scenario" type="button" data-prompt="Can you check the status of order 1002?"><strong>Order investigation</strong><span>Inspect order and delivery status</span></button>
-      <button class="scenario" type="button" data-prompt="Is order 1002 eligible for a refund?"><strong>Policy check</strong><span>Ask the agent to evaluate eligibility</span></button>
-      <div class="sidebar-footer"><div class="status"><span class="dot"></span> Agent API ready</div>Spring AI orchestration · Gemini · deterministic backend tools</div>
-    </aside>
-
-    <main class="main">
-      <header class="topbar">
-        <div class="top-title">Customer Support Resolution</div>
-        <div class="top-meta"><span class="pill">Supervisor Agent</span><span class="pill">Gemini</span></div>
-      </header>
-
-      <section class="chat" aria-label="Agent conversation">
-        <div class="hero" id="hero">
-          <h1>Resolve customer issues with AI.</h1>
-          <p>Ask the support agent to investigate orders, delivery, payments and refund eligibility. The agent selects backend tools; business rules stay deterministic in the API.</p>
-          <div class="hero-badges"><span class="badge">Tool calling</span><span class="badge">Policy-aware</span><span class="badge">Human approval ready</span><span class="badge">Idempotent refunds</span></div>
-        </div>
-        <div class="messages" id="messages" aria-live="polite"></div>
-      </section>
-    </main>
-  </div>
-
-  <div class="composer-wrap">
-    <form class="composer" id="composer">
-      <div class="composer-box">
-        <textarea id="input" rows="1" placeholder="Ask the agent about an order, refund, delivery, or payment…" aria-label="Message the support agent"></textarea>
-        <div class="composer-actions"><span class="hint">Enter to send · Shift + Enter for a new line</span><button class="send" id="send" type="submit" aria-label="Send message">↑</button></div>
-      </div>
-      <div class="error" id="error" role="alert"></div>
-    </form>
-  </div>
-
-  <script>
-    (() => {
-      const root = document.getElementById('app');
-      if (!root || root.dataset.initialized) return;
-      root.dataset.initialized = 'true';
-
-      const messages = document.getElementById('messages');
-      const input = document.getElementById('input');
-      const send = document.getElementById('send');
-      const composer = document.getElementById('composer');
-      const error = document.getElementById('error');
-      const hero = document.getElementById('hero');
-      const newChat = document.getElementById('newChat');
-
-      const now = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const escapeText = (value) => String(value ?? '');
-
-      function addMessage(role, text, trace) {
-        const wrapper = document.createElement('article');
-        wrapper.className = `message ${role}`;
-        const avatar = document.createElement('div');
-        avatar.className = 'avatar';
-        avatar.textContent = role === 'user' ? 'You' : 'AI';
-        const body = document.createElement('div');
-        body.className = 'message-body';
-        const head = document.createElement('div');
-        head.className = 'message-head';
-        const name = document.createElement('span');
-        name.className = 'message-name';
-        name.textContent = role === 'user' ? 'You' : 'Support Agent';
-        const time = document.createElement('span');
-        time.className = 'message-time';
-        time.textContent = now();
-        head.append(name, time);
-        const bubble = document.createElement('div');
-        bubble.className = 'bubble';
-        bubble.textContent = escapeText(text);
-        body.append(head, bubble);
-
-        if (trace) {
-          const panel = document.createElement('div');
-          panel.className = 'tool-trace';
-          const traceHead = document.createElement('div');
-          traceHead.className = 'trace-head';
-          traceHead.innerHTML = '<span>Agent execution</span><span style="color:#4ade80">completed</span>';
-          const list = document.createElement('div');
-          list.className = 'trace-list';
-          trace.forEach(tool => {
-            const row = document.createElement('div');
-            row.className = 'trace-row';
-            row.innerHTML = `<span class="trace-check">✓</span><span class="trace-code"></span>`;
-            row.querySelector('.trace-code').textContent = tool;
-            list.append(row);
-          });
-          panel.append(traceHead, list);
-          body.append(panel);
-        }
-
-        wrapper.append(avatar, body);
-        messages.append(wrapper);
-        wrapper.scrollIntoView({ behavior: 'smooth', block: 'end' });
-      }
-
-      function setBusy(busy) {
-        send.disabled = busy;
-        input.disabled = busy;
-        send.textContent = busy ? '…' : '↑';
-      }
-
-      async function sendMessage(text) {
-        const message = text.trim();
-        if (!message || send.disabled) return;
-        error.style.display = 'none';
-        hero.style.display = 'none';
-        addMessage('user', message);
-        input.value = '';
-        input.style.height = 'auto';
-        setBusy(true);
-
-        try {
-          const response = await fetch('/api/agent/resolve', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message })
-          });
-          const data = await response.json().catch(() => ({}));
-          if (!response.ok) throw new Error(data.message || data.error || `Agent request failed (${response.status})`);
-          const answer = data.response || data.message || 'The agent returned an empty response.';
-          addMessage('agent', answer, null);
-        } catch (err) {
-          error.textContent = err.message || 'Unable to reach the agent.';
-          error.style.display = 'block';
-          addMessage('agent', 'I could not complete that request. Check that the Agent API is enabled and the LLM configuration is available, then try again.');
-        } finally {
-          setBusy(false);
-          input.focus();
-        }
-      }
-
-      composer.addEventListener('submit', (event) => { event.preventDefault(); sendMessage(input.value); });
-      input.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendMessage(input.value); }
-      });
-      input.addEventListener('input', () => {
-        input.style.height = 'auto';
-        input.style.height = `${Math.min(input.scrollHeight, 150)}px`;
-      });
-      document.querySelectorAll('.scenario').forEach(button => {
-        button.addEventListener('click', () => { input.value = button.dataset.prompt || ''; input.focus(); input.dispatchEvent(new Event('input')); });
-      });
-      newChat.addEventListener('click', () => { messages.replaceChildren(); hero.style.display = ''; error.style.display = 'none'; input.value = ''; input.focus(); });
-    })();
-  </script>
+<div class="app" id="app">
+  <aside class="sidebar" aria-label="Conversation sidebar">
+    <div class="brand"><div class="brand-mark">AI</div><div><div class="brand-title">Support Copilot</div><div class="brand-sub">Multi-Agent Resolution</div></div></div>
+    <button class="new-chat" id="newChat" type="button">＋ New conversation</button>
+    <div class="side-label">Try a scenario</div>
+    <button class="scenario" type="button" data-prompt="My order 1002 is five days late. I want a refund."><strong>Delayed order</strong><span>Investigate and resolve a refund request</span></button>
+    <button class="scenario" type="button" data-prompt="Can you check the status of order 1002?"><strong>Order investigation</strong><span>Inspect order and delivery status</span></button>
+    <button class="scenario" type="button" data-prompt="Is order 1002 eligible for a refund?"><strong>Policy check</strong><span>Ask the resolution agent to evaluate eligibility</span></button>
+    <div class="sidebar-footer"><div class="status"><span class="dot"></span> Multi-Agent API ready</div>Supervisor → Order → Resolution → Communication</div>
+  </aside>
+  <main class="main">
+    <header class="topbar"><div class="top-title">Customer Support Resolution</div><div class="top-meta"><span class="pill">Supervisor Agent</span><span class="pill">Multi-Agent</span></div></header>
+    <section class="chat" aria-label="Multi-agent conversation">
+      <div class="hero" id="hero"><h1>Resolve customer issues with AI.</h1><p>Talk directly to the supervisor agent. It coordinates the specialist agents and returns one customer-facing resolution.</p><div class="hero-badges"><span class="badge">Supervisor orchestration</span><span class="badge">Order investigation</span><span class="badge">Resolution</span><span class="badge">Communication</span></div></div>
+      <div class="messages" id="messages" aria-live="polite"></div>
+    </section>
+  </main>
+</div>
+<div class="composer-wrap"><form class="composer" id="composer"><div class="composer-box"><textarea id="input" rows="1" placeholder="Talk to the multi-agent support system…" aria-label="Message the multi-agent support system"></textarea><div class="composer-actions"><span class="hint">Enter to send · Shift + Enter for a new line</span><button class="send" id="send" type="submit" aria-label="Send message">↑</button></div></div><div class="error" id="error" role="alert"></div></form></div>
+<script>
+(() => {
+  const messages=document.getElementById('messages'),input=document.getElementById('input'),send=document.getElementById('send'),composer=document.getElementById('composer'),error=document.getElementById('error'),hero=document.getElementById('hero'),newChat=document.getElementById('newChat');
+  const now=()=>new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  function addMessage(role,text,trace){
+    const wrapper=document.createElement('article');wrapper.className=`message ${role}`;
+    const avatar=document.createElement('div');avatar.className='avatar';avatar.textContent=role==='user'?'You':'AI';
+    const body=document.createElement('div');body.className='message-body';
+    const head=document.createElement('div');head.className='message-head';
+    const name=document.createElement('span');name.className='message-name';name.textContent=role==='user'?'You':'Support Agent';
+    const time=document.createElement('span');time.className='message-time';time.textContent=now();head.append(name,time);
+    const bubble=document.createElement('div');bubble.className='bubble';bubble.textContent=String(text??'');body.append(head,bubble);
+    if(trace&&trace.length){
+      const panel=document.createElement('div');panel.className='tool-trace';
+      const th=document.createElement('div');th.className='trace-head';th.innerHTML='<span>Multi-agent execution</span><span style="color:#4ade80">completed</span>';
+      const list=document.createElement('div');list.className='trace-list';
+      trace.forEach(event=>{const row=document.createElement('div');row.className='trace-row';const check=document.createElement('span');check.className='trace-check';check.textContent='✓';const code=document.createElement('span');code.className='trace-code';code.textContent=`${event.type||'EVENT'} · ${event.component||''}${event.name?' · '+event.name:''}`;const duration=document.createElement('span');duration.className='trace-time';duration.textContent=event.durationMs?`${event.durationMs}ms`:'';row.append(check,code,duration);list.append(row)});
+      panel.append(th,list);body.append(panel);
+    }
+    wrapper.append(avatar,body);messages.append(wrapper);wrapper.scrollIntoView({behavior:'smooth',block:'end'});
+  }
+  function setBusy(busy){send.disabled=busy;input.disabled=busy;send.textContent=busy?'…':'↑'}
+  async function sendMessage(text){
+    const message=text.trim();if(!message||send.disabled)return;error.style.display='none';hero.style.display='none';addMessage('user',message);input.value='';input.style.height='auto';setBusy(true);
+    try{
+      const response=await fetch('/api/multi-agent/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message})});
+      const data=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(data.message||data.error||`Multi-agent request failed (${response.status})`);
+      const result=data.result||{};
+      const answer=result.response||result.message||data.message||'The multi-agent system returned no response.';
+      addMessage('agent',answer,data.trace||[]);
+    }catch(err){error.textContent=err.message||'Unable to reach the multi-agent API.';error.style.display='block';addMessage('agent','I could not complete that request. Check that the multi-agent API is enabled and the backend is running.');}
+    finally{setBusy(false);input.focus()}
+  }
+  composer.addEventListener('submit',e=>{e.preventDefault();sendMessage(input.value)});
+  input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage(input.value)}});
+  input.addEventListener('input',()=>{input.style.height='auto';input.style.height=`${Math.min(input.scrollHeight,150)}px`});
+  document.querySelectorAll('.scenario').forEach(button=>button.addEventListener('click',()=>{input.value=button.dataset.prompt||'';input.focus();input.dispatchEvent(new Event('input'))}));
+  newChat.addEventListener('click',()=>{messages.replaceChildren();hero.style.display='';error.style.display='none';input.value='';input.focus()});
+})();
+</script>
 </body>
 </html>
