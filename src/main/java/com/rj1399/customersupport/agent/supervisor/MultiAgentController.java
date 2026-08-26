@@ -2,6 +2,7 @@ package com.rj1399.customersupport.agent.supervisor;
 
 import com.rj1399.customersupport.agent.AgentTrace;
 import com.rj1399.customersupport.agent.AgentTraceStore;
+import com.rj1399.customersupport.agent.CustomerSupportAgentTools;
 import com.rj1399.customersupport.agent.core.AgentTask;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -28,11 +29,22 @@ public class MultiAgentController {
         String executionId = traceStore.start();
         traceStore.add(new AgentTrace(executionId, java.time.Instant.now(), AgentTrace.TraceEventType.AGENT_STARTED,
                 "supervisor-agent", "resolve", 0, Map.of("messageLength", request.message().length())));
-        var result = supervisor.execute(new AgentTask(executionId, UUID.randomUUID().toString(), "SUPERVISOR",
-                Map.of("message", request.message())));
-        traceStore.complete(executionId);
-        return Map.of("executionId", executionId, "agent", result.agent(), "status", result.status(), "result", result.result(),
-                "trace", traceStore.get(executionId));
+        CustomerSupportAgentTools.bindExecution(executionId);
+        try {
+            var result = supervisor.execute(new AgentTask(executionId, UUID.randomUUID().toString(), "SUPERVISOR",
+                    Map.of("message", request.message())));
+            traceStore.complete(executionId);
+            return Map.of("executionId", executionId, "agent", result.agent(), "status", result.status(), "result", result.result(),
+                    "trace", traceStore.get(executionId));
+        } catch (RuntimeException ex) {
+            traceStore.add(new AgentTrace(executionId, java.time.Instant.now(), AgentTrace.TraceEventType.AGENT_ERROR,
+                    "supervisor-agent", "resolve", 0,
+                    Map.of("errorType", ex.getClass().getSimpleName(), "message", ex.getMessage() == null ? "" : ex.getMessage())));
+            traceStore.complete(executionId);
+            throw ex;
+        } finally {
+            CustomerSupportAgentTools.clearExecution();
+        }
     }
 
     public record Request(@NotBlank String message) {}
