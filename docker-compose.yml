@@ -27,6 +27,9 @@ services:
       DB_USERNAME: customer_support
       DB_PASSWORD: customer_support
       SERVER_PORT: 8080
+      AGENT_ENABLED: ${AGENT_ENABLED:-true}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
     ports:
       - "8080:8080"
 

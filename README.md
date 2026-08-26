@@ -1,8 +1,8 @@
 # AI Customer Support Resolution Agent
 
-A production-oriented customer-support backend designed to become the tool layer for an Agentic AI customer-resolution system.
+A production-oriented customer-support backend and Agentic AI orchestration platform. The system uses Gemini through Spring AI for reasoning and tool selection, while the backend remains the source of truth for customer, order, payment, delivery, refund, and ticket state.
 
-> **Important:** The repository currently contains the deterministic backend/tool layer. The agent layer is designed around Spring AI and an LLM provider such as Gemini. The backend remains the source of truth for customer, order, payment, refund, and ticket state.
+> **Current status:** The `dev` branch contains the deterministic backend plus the first Supervisor Agent implementation. The agent is intentionally thin: Gemini reasons about the request and selects typed tools; deterministic Java services enforce business rules and execute state changes.
 
 ## Technology baseline
 
@@ -15,40 +15,41 @@ A production-oriented customer-support backend designed to become the tool layer
 - Spring Boot Actuator
 - Maven
 - Docker / Docker Compose
-- Spring AI for the planned agent orchestration layer
-- Gemini API as the LLM integration target
+- Spring AI 2.0.1
+- Google Gemini via `spring-ai-starter-model-google-genai`
 
 ## Architecture
 
-The system is intentionally split into two responsibilities:
-
 ```text
-                    Customer Request
-                           |
-                           v
-                 +---------------------+
-                 |   Supervisor Agent  |
-                 |  Reasoning / Plan   |
-                 +----------+----------+
-                            |
-                 Selects the required tools
-                            |
-          +-----------------+------------------+
-          |                 |                  |
-          v                 v                  v
-   Order / Delivery     Payment Tool     Refund Policy Tool
-       Tools                                |
-          |                                  v
-          +--------------------------> Refund Tool
-                            |
-                            v
-                       Ticket Tool
-                            |
-                            v
-                 Deterministic Backend
-                            |
-                            v
-                       PostgreSQL
+                         Customer Request
+                                |
+                                v
+                  +---------------------------+
+                  |    Supervisor Agent       |
+                  |  Spring AI + Gemini       |
+                  +-------------+-------------+
+                                |
+                         Tool selection
+                                |
+          +---------------------+----------------------+
+          |          |           |          |          |
+          v          v           v          v          v
+      Customer     Order     Delivery   Payment    Refund Policy
+        Tool       Tool        Tool       Tool         Tool
+          |          |           |          |          |
+          +----------+-----------+----------+----------+
+                                |
+                                v
+                         Refund / Ticket Tool
+                                |
+                                v
+                  +---------------------------+
+                  | Deterministic Backend     |
+                  | CustomerSupportService    |
+                  +-------------+-------------+
+                                |
+                                v
+                           PostgreSQL
 ```
 
 ### Responsibility boundary
@@ -59,22 +60,118 @@ The system is intentionally split into two responsibilities:
 - Reasoning and planning
 - Deciding which tools are required
 - Sequencing tool calls
-- Handling tool failures and retryable errors
-- Asking for human approval for high-risk actions
 - Producing the final customer-facing response
+- Deciding when more information is required
 
 **Backend owns:**
 
 - Database state
 - Business rules
-- Authorization boundaries for business operations
 - Validation
 - Idempotency
 - Refund eligibility
 - Payment and delivery state
-- Persisting support tickets and refunds
+- Persisting refunds and support tickets
 
-The LLM should **not** be trusted to implement business policy itself. It should call deterministic backend tools to obtain facts and perform controlled actions.
+The LLM is **not** trusted to implement business policy. It must call deterministic backend tools to obtain facts and perform controlled actions.
+
+## Agent implementation
+
+The current Supervisor Agent is under:
+
+```text
+src/main/java/com/rj1399/customersupport/agent/
+├── AgentController.java
+├── AgentOrchestrator.java
+└── CustomerSupportAgentTools.java
+```
+
+### Agent endpoint
+
+```http
+POST /api/agent/resolve
+Content-Type: application/json
+```
+
+Example:
+
+```bash
+curl -X POST http://localhost:8080/api/agent/resolve \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "message": "My order 1002 is five days late. I want a refund."
+  }'
+```
+
+The intended execution is:
+
+```text
+User
+ |
+ v
+Supervisor Agent
+ |
+ +--> getOrder(1002)
+ |
+ +--> getDeliveryStatus(1002)
+ |
+ +--> getPayment(1002)
+ |
+ +--> checkRefundPolicy(1002)
+ |
+ +--> createRefund(1002)       <-- only when backend policy allows it
+ |
+ v
+Final customer response
+```
+
+The LLM can choose and sequence tools, but it cannot bypass the service layer.
+
+## Spring AI tool layer
+
+`CustomerSupportAgentTools` exposes deterministic capabilities using Spring AI `@Tool` methods:
+
+| Tool | Purpose |
+|---|---|
+| `getCustomer` | Retrieve customer facts |
+| `getOrder` | Retrieve order state |
+| `getDeliveryStatus` | Determine delivery status and delay |
+| `getPayment` | Verify payment state and amount |
+| `checkRefundPolicy` | Get the authoritative refund decision |
+| `createRefund` | Execute a controlled, idempotent refund |
+| `getSupportTicket` | Retrieve an existing support ticket |
+
+The tools delegate to `CustomerSupportService`; the agent never accesses JPA repositories directly.
+
+## Gemini configuration
+
+The `dev` branch uses Google Gemini rather than OpenAI.
+
+Create a local `.env` file:
+
+```env
+GEMINI_API_KEY=your-gemini-api-key
+GEMINI_MODEL=gemini-2.5-flash
+AGENT_ENABLED=true
+```
+
+`.env` is ignored by Git and must never be committed.
+
+Then start the application:
+
+```bash
+docker compose up --build
+```
+
+The Docker Compose configuration passes the Gemini configuration into the application:
+
+```yaml
+GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+AGENT_ENABLED: ${AGENT_ENABLED:-true}
+```
+
+The agent endpoint is feature-gated. If `AGENT_ENABLED=false`, `/api/agent/resolve` is not registered.
 
 ## Agentic use case
 
@@ -82,46 +179,34 @@ Example customer request:
 
 > "My order 1002 is five days late. I want a refund."
 
-The agent should not immediately call the refund API. It should investigate the request first.
+The agent should investigate first rather than immediately issuing a refund.
 
 ```text
-Customer
-   |
-   v
+Customer message
+      |
+      v
 Supervisor Agent
-   |
-   +--> Get Order 1002
-   |       |
-   |       +--> customer
-   |       +--> amount
-   |       +--> status
-   |
-   +--> Get Delivery Status
-   |       |
-   |       +--> expected delivery
-   |       +--> actual delivery
-   |       +--> delay
-   |
-   +--> Get Payment Status
-   |
-   +--> Check Refund Policy
-   |
-   +--> Decision
-          |
-          +--> Eligible + safe
-          |       |
-          |       +--> Create Refund
-          |
-          +--> High risk / uncertain
-                  |
-                  +--> Human Approval
+      |
+      +--> Order information
+      |
+      +--> Delivery status
+      |
+      +--> Payment status
+      |
+      +--> Refund policy
+      |
+      +--> Decision
+             |
+             +--> Eligible + safe --> Create refund
+             |
+             +--> Not eligible --> Explain why
+             |
+             +--> High risk --> Human approval
 ```
 
-For order `1002`, the demo data intentionally represents a delayed order so that this workflow can be exercised end-to-end.
+For demo order `1002`, the backend data represents an order that is five days late and has a captured payment.
 
-## Backend tool contracts
-
-The backend exposes deterministic capabilities that can be wrapped as Spring AI tools:
+## Backend API / tool contracts
 
 ```text
 GET  /api/customers/{customerId}
@@ -134,127 +219,92 @@ GET  /api/tickets/{ticketNumber}
 POST /api/tickets
 ```
 
-A useful tool mapping is:
+The agent uses the typed tool layer rather than calling these HTTP endpoints itself.
 
-| Agent capability | Backend API | Purpose |
-|---|---|---|
-| Customer lookup | `GET /api/customers/{customerId}` | Retrieve customer facts |
-| Order lookup | `GET /api/orders/{orderNumber}` | Retrieve order state |
-| Delivery tool | `GET /api/orders/{orderNumber}/delivery` | Determine delivery status/delay |
-| Payment tool | `GET /api/orders/{orderNumber}/payment` | Verify payment state |
-| Policy tool | `GET /api/refund-policy/{orderNumber}` | Determine refund eligibility |
-| Refund tool | `POST /api/refunds` | Execute a controlled refund |
-| Ticket tool | `GET/POST /api/tickets` | Read/create support tickets |
+## Business rules
 
-The agent should use these APIs as **tools**, rather than directly accessing the database.
-
-## Tool failure and resilience
-
-Agent orchestration must distinguish between retryable and non-retryable failures.
-
-```text
-Tool call
-   |
-   +--> 2xx ----------------------> Continue reasoning
-   |
-   +--> 5xx / transient ----------> Retry with backoff
-   |
-   +--> 429 ----------------------> Respect rate limit / retry
-   |
-   +--> 4xx validation -----------> Do not blindly retry
-   |
-   +--> timeout ------------------> Retry within bounded limit
-   |
-   +--> repeated failure ---------> Graceful fallback / human escalation
-```
-
-LLM provider calls should similarly use bounded retries, timeouts, and exponential backoff for transient failures such as `503 ServiceUnavailable`. Authentication, authorization, malformed-request, and validation errors should not be retried blindly.
-
-## Agent safety boundary
-
-The agent must not be allowed to turn natural-language reasoning directly into unrestricted database mutations.
-
-For sensitive actions such as refunds:
-
-```text
-LLM reasoning
-     |
-     v
-Refund Policy Tool
-     |
-     v
-Deterministic eligibility check
-     |
-     +---- Not eligible ------> Explain to customer
-     |
-     +---- Eligible ----------> Refund API
-                                   |
-                                   +--> Idempotency check
-                                   +--> Business validation
-                                   +--> Persist refund
-```
-
-For high-risk actions, the architecture supports a human-in-the-loop approval step before execution.
-
-## Token and cost control
-
-The agent should avoid sending unnecessary context to the LLM.
-
-Recommended approach:
-
-- Use small, focused tool responses rather than returning complete database entities.
-- Fetch only the information required for the current decision.
-- Keep system instructions stable and concise.
-- Use conversation summarization for long conversations.
-- Avoid repeatedly sending the same order/payment information.
-- Route simple deterministic operations directly to backend APIs instead of asking the LLM to reason about them.
-- Track token usage and model cost per agent execution.
-
-The goal is to make the LLM responsible for **reasoning**, not for work that ordinary backend code can perform more cheaply and reliably.
-
-## LLM provider
-
-The agent layer is designed to work with an LLM provider such as Gemini. The provider is responsible for generating model responses and tool-selection decisions; the backend remains responsible for executing and validating business operations.
-
-Example high-level interaction:
-
-```text
-User message
-     |
-     v
-Supervisor Agent
-     |
-     |-- LLM request --> Gemini
-     |                    |
-     |<-- tool choice ---|
-     |
-     v
-Backend Tool
-     |
-     v
-Tool result
-     |
-     v
-Supervisor Agent
-     |
-     |-- LLM request --> Gemini
-     |
-     v
-Final response
-```
-
-A transient provider error such as HTTP `503` should be handled by the resilience layer rather than causing the entire customer-resolution workflow to fail immediately.
-
-## Business rules implemented by the backend
+The backend enforces:
 
 - Refund requires at least 3 days of delivery delay.
 - Payment must be `CAPTURED`.
 - Automatic refunds are capped at ₹5,000.
 - A completed refund cannot be created twice for the same order.
 - Refund creation requires an idempotency key.
-- Repeating the same refund request with the same idempotency key returns the existing refund instead of creating a duplicate.
+- Repeating a refund request with the same idempotency key returns the existing refund.
 
-These rules are deliberately deterministic. The agent can ask the backend for the policy decision, but it should not invent or override the policy.
+These rules are deterministic. Gemini may reason about the customer's request, but it cannot override these rules.
+
+## Tool failure and resilience roadmap
+
+The next agent-engineering iteration will distinguish retryable and non-retryable failures:
+
+```text
+Tool call
+ |
+ +--> 2xx ---------------------> Continue reasoning
+ |
+ +--> timeout / 5xx -----------> Bounded retry + backoff
+ |
+ +--> 429 ----------------------> Rate-limit handling
+ |
+ +--> 4xx validation -----------> Do not blindly retry
+ |
+ +--> repeated failure ---------> Graceful fallback / escalation
+```
+
+Gemini provider failures should similarly use bounded retries and timeouts. Authentication and malformed-request errors should not be retried blindly.
+
+## Safety boundary
+
+The agent must not translate natural-language reasoning directly into unrestricted database mutations.
+
+For a refund:
+
+```text
+Gemini reasoning
+      |
+      v
+Refund Policy Tool
+      |
+      v
+Deterministic eligibility check
+      |
+      +---- Not eligible ------> Explain to customer
+      |
+      +---- Eligible ----------> Refund Tool
+                                    |
+                                    +--> Idempotency check
+                                    +--> Business validation
+                                    +--> Persist refund
+```
+
+For higher-risk actions, the planned architecture includes a human-in-the-loop approval step.
+
+## Token and cost control roadmap
+
+The agent should use the LLM for reasoning rather than work ordinary backend code can perform more cheaply.
+
+Planned controls:
+
+- Keep tool responses small and focused.
+- Fetch only information required for the current decision.
+- Keep system instructions concise.
+- Avoid repeatedly sending the same order/payment context.
+- Route deterministic operations directly to backend services.
+- Track input/output tokens and model cost per agent execution.
+- Add model routing for simple versus complex requests.
+
+## Memory and RAG roadmap
+
+Future iterations can add:
+
+- Conversation memory
+- Customer interaction history
+- Refund/support policy documents
+- RAG over support knowledge
+- Previous-resolution retrieval
+
+Memory will remain separate from transactional business state.
 
 ## Demo data
 
@@ -265,8 +315,8 @@ The Flyway seed migration creates:
 - Order `1001` - delivered
 - Order `1002` - intentionally five days late
 - Order `1003` - currently shipping
-- Payments for all three orders
-- Ticket `TKT-1001` for the delayed order
+- Payments for the demo orders
+- Support ticket data
 
 ## Run locally
 
@@ -276,7 +326,11 @@ The Flyway seed migration creates:
 docker compose up --build
 ```
 
-The API will be available at `http://localhost:8080`.
+The API is available at:
+
+```text
+http://localhost:8080
+```
 
 Health check:
 
@@ -284,55 +338,35 @@ Health check:
 curl http://localhost:8080/actuator/health
 ```
 
-If you intentionally want a fresh local database, use:
+### Fresh local database
+
+If you need to recreate the demo database:
 
 ```bash
 ./scripts/reset-local-db.sh
 ```
 
-This removes the local PostgreSQL Docker volume and allows Flyway to recreate the schema and demo data.
-
-### Run PostgreSQL separately
-
-Start PostgreSQL with a database named `customer_support`, then run:
-
-```bash
-./mvnw spring-boot:run
-```
-
-or:
-
-```bash
-mvn spring-boot:run
-```
+This removes the local PostgreSQL Docker volume so Flyway can recreate the schema and seed data.
 
 ## Try the backend tools
-
-Get the delayed order:
 
 ```bash
 curl http://localhost:8080/api/orders/1002
 ```
 
-Check delivery:
-
 ```bash
 curl http://localhost:8080/api/orders/1002/delivery
 ```
-
-Check payment:
 
 ```bash
 curl http://localhost:8080/api/orders/1002/payment
 ```
 
-Check refund eligibility:
-
 ```bash
 curl http://localhost:8080/api/refund-policy/1002
 ```
 
-Create the refund:
+Direct refund API:
 
 ```bash
 curl -X POST http://localhost:8080/api/refunds \
@@ -344,60 +378,57 @@ curl -X POST http://localhost:8080/api/refunds \
   }'
 ```
 
-Repeat the same request with the same idempotency key. It should not create a duplicate refund.
+Repeat the same request with the same idempotency key to verify duplicate protection.
 
-Create a support ticket:
+## Try the Agentic AI flow
+
+1. Configure `.env` with a Gemini API key.
+2. Set `AGENT_ENABLED=true`.
+3. Start the application with Docker Compose.
+4. Send a natural-language customer request:
 
 ```bash
-curl -X POST http://localhost:8080/api/tickets \
+curl -X POST http://localhost:8080/api/agent/resolve \
   -H 'Content-Type: application/json' \
   -d '{
-    "customerId": "11111111-1111-1111-1111-111111111111",
-    "orderId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
-    "subject": "Order delayed",
-    "description": "Customer is requesting a refund because the order is five days late."
+    "message": "My order 1002 is five days late. I want a refund."
   }'
 ```
 
-## Agent implementation roadmap
-
-The next implementation steps for the agent layer are:
-
-1. Create a Spring AI supervisor/orchestrator agent.
-2. Expose the backend capabilities as typed Spring AI tools.
-3. Add tool descriptions and strict input validation.
-4. Add bounded retry and timeout policies for LLM and tool calls.
-5. Add human approval for high-risk refund actions.
-6. Add conversation memory and context management.
-7. Add RAG over support/refund policies where appropriate.
-8. Add token/cost tracking.
-9. Add agent execution tracing and structured logs.
-10. Add evaluation scenarios for common and adversarial customer requests.
+The first version intentionally keeps the orchestration simple: one Supervisor Agent with deterministic domain tools. Additional specialized agents can be introduced when there is a clear responsibility boundary rather than creating agents artificially.
 
 ## AWS EC2 deployment
 
-The application is intentionally packaged as a normal Spring Boot container so it can run on a small EC2 instance without Kubernetes.
-
-### Build
+The application is packaged as a standard Spring Boot container and is intentionally deployable to a small EC2 instance without Kubernetes.
 
 ```bash
 mvn clean package -DskipTests
-```
-
-### Run with Docker
-
-```bash
 docker compose up -d --build
 ```
 
-For production, replace demo database credentials with environment variables or a proper secret-management solution. Open only the required EC2 security-group ports; normally expose `8080` only behind a reverse proxy/load balancer.
+For production:
+
+- Do not commit API keys or database passwords.
+- Use EC2 environment/secret management for credentials.
+- Restrict security-group ports.
+- Put the application behind HTTPS/reverse proxy or an AWS load balancer.
+- Use managed PostgreSQL such as Amazon RDS instead of the demo PostgreSQL container.
+
+## Agent implementation roadmap
+
+1. Supervisor Agent + typed tools — **implemented**
+2. Gemini provider integration — **implemented**
+3. Tool execution tracing — next
+4. Bounded retries and timeouts — next
+5. Human approval for high-risk actions
+6. Conversation memory
+7. RAG over support policies
+8. Token/cost tracking
+9. Agent evaluation dataset
+10. Multi-agent specialization where justified
 
 ## Design principle
 
-The backend owns **truth and business rules**.
+> **Backend owns truth. Agent owns reasoning.**
 
-The agent owns **reasoning, planning, tool selection, orchestration, and conversation**.
-
-The LLM is a reasoning component, **not the system of record and not the authority for business policy**.
-
-That boundary is intentional and is the core architectural decision of this project.
+The backend is the system of record and enforces business invariants. Gemini is a reasoning and orchestration component. This separation is intentional and is the core architectural decision of the project.
