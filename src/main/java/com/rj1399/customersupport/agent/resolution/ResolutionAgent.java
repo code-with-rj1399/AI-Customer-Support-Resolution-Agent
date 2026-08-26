@@ -45,7 +45,8 @@ public class ResolutionAgent implements SupportAgent {
         }
 
         if (approvals.requiresApproval(payment.amount())) {
-            var approval = approvals.create(orderNumber, payment.amount(), reason, task.executionId());
+            String approvalIdempotencyKey = "hitl-" + task.executionId() + "-" + orderNumber;
+            var approval = approvals.create(orderNumber, payment.amount(), reason, approvalIdempotencyKey, task.executionId());
             result.put("approval", approval);
             return new AgentResult(task.executionId(), task.taskId(), name(), "WAITING_FOR_HUMAN", result);
         }
