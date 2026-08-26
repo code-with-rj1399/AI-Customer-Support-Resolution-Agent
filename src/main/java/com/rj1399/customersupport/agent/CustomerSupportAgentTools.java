@@ -89,7 +89,7 @@ public class CustomerSupportAgentTools {
             if (executionId != null) {
                 traceStore.add(new AgentTrace(executionId, Instant.now(), AgentTrace.TraceEventType.TOOL_ERROR,
                         "rag", "policy-knowledge-search", duration,
-                        Map.of("errorType", ex.getClass().getSimpleName(), "message", safe(ex.getMessage()))));
+                        Map.of("errorType", ex.getClass().getSimpleName(), "message", safe(ex.getMessage())));
             }
             throw ex;
         }
@@ -108,21 +108,25 @@ public class CustomerSupportAgentTools {
             return new RefundActionResult("REJECTED", orderNumber, "Refund requires a captured payment.", null, null);
         }
 
-        if (humanApprovalService.requiresApproval(payment.amount())) {
+        ApiDtos.OrderResponse order = service.getOrder(orderNumber);
+        java.math.BigDecimal refundAmount = order.totalAmount();
+
+        if (humanApprovalService.requiresApproval(refundAmount)) {
             HumanApprovalService.Approval approval = humanApprovalService.create(
                     orderNumber,
-                    payment.amount(),
+                    refundAmount,
                     reason,
+                    idempotencyKey,
                     executionId);
             if (executionId != null) {
                 traceStore.add(new AgentTrace(executionId, Instant.now(), AgentTrace.TraceEventType.HUMAN_APPROVAL_REQUESTED,
                         "hitl", "refund-approval", 0,
-                        Map.of("approvalId", approval.id().toString(), "orderNumber", orderNumber, "amount", payment.amount())));
+                        Map.of("approvalId", approval.id().toString(), "orderNumber", orderNumber, "amount", refundAmount)));
             }
-            log.info("agent.hitl.requested executionId={} approvalId={} orderNumber={} amount={}", executionId, approval.id(), orderNumber, payment.amount());
+            log.info("agent.hitl.requested executionId={} approvalId={} orderNumber={} amount={}", executionId, approval.id(), orderNumber, refundAmount);
             return new RefundActionResult("PENDING_HUMAN_APPROVAL", orderNumber,
                     "Refund is eligible but requires human approval because the amount exceeds the automatic approval threshold.",
-                    approval.id(), payment.amount());
+                    approval.id(), refundAmount);
         }
 
         ApiDtos.RefundResponse refund = createRefund(orderNumber, reason, idempotencyKey);
@@ -163,7 +167,7 @@ public class CustomerSupportAgentTools {
             if (executionId != null) {
                 traceStore.add(new AgentTrace(executionId, Instant.now(), AgentTrace.TraceEventType.TOOL_ERROR,
                         "tool", toolName, duration,
-                        Map.of("errorType", ex.getClass().getSimpleName(), "message", safe(ex.getMessage())));
+                        Map.of("errorType", ex.getClass().getSimpleName(), "message", safe(ex.getMessage()))));
             }
             log.error("agent.tool.failed executionId={} tool={} durationMs={} errorType={}", executionId, toolName, duration, ex.getClass().getSimpleName(), ex);
             throw ex;
