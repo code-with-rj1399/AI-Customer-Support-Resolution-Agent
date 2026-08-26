@@ -1,8 +1,28 @@
 # AI Customer Support Resolution Agent
 
-A production-oriented customer-support backend and Agentic AI learning platform. The project demonstrates OpenAI + Spring AI, tool calling, single-agent orchestration, multi-agent delegation, RAG with PGVector, live observability, and a deterministic Java backend that remains the source of truth for business state and mutations.
+A production-oriented customer-support backend and **Agentic AI learning platform** built around OpenAI, Spring AI, typed tools, multi-agent orchestration, RAG, PGVector, and live observability.
 
-> **Current branch:** `multi-agent` contains the multi-agent architecture plus policy RAG. `master` remains the stable portfolio baseline.
+The central architectural principle is:
+
+> **The agent owns reasoning. The backend owns truth.**
+
+The LLM can understand intent, plan, delegate, retrieve knowledge, and select tools. It does **not** directly access repositories or bypass deterministic business rules.
+
+## 📚 Feature documentation
+
+The README gives the high-level architecture. Each major concept has a focused guide under [`docs/`](docs/README.md):
+
+| Concept | Guide |
+|---|---|
+| Tool Calling | [`docs/tool-calling.md`](docs/tool-calling.md) |
+| Single-Agent Orchestration | [`docs/single-agent.md`](docs/single-agent.md) |
+| Multi-Agent Architecture | [`docs/multi-agent.md`](docs/multi-agent.md) |
+| Agentic RAG / PGVector | [`docs/rag.md`](docs/rag.md) |
+| Live Observability / SSE | [`docs/observability.md`](docs/observability.md) |
+| Agent UI | [`docs/ui.md`](docs/ui.md) |
+| Safety Boundary | [`docs/safety-boundary.md`](docs/safety-boundary.md) |
+
+**Recommended learning path:** Tool Calling → Single Agent → Multi-Agent → RAG → Observability → Human-in-the-Loop → Memory → Guardrails → Evaluation.
 
 ## Technology baseline
 
@@ -16,7 +36,8 @@ A production-oriented customer-support backend and Agentic AI learning platform.
 - Maven
 - Docker / Docker Compose
 - Spring AI 2.0.1
-- OpenAI chat + `text-embedding-3-small` embeddings
+- OpenAI chat models
+- OpenAI `text-embedding-3-small`
 
 ## Architecture
 
@@ -54,31 +75,31 @@ A production-oriented customer-support backend and Agentic AI learning platform.
                                  PostgreSQL
 ```
 
-### Responsibility boundary
+## Responsibility boundary
 
-**Agents own:**
+### Agents own
 
-- Understanding customer intent
+- Customer intent understanding
 - Planning and delegation
-- Selecting tools
-- Retrieving relevant knowledge
-- Producing customer-facing responses
+- Tool selection and sequencing
+- Knowledge retrieval
+- Customer-facing response generation
 
-**Backend owns:**
+### Backend owns
 
 - Database state
-- Business rules
-- Validation
-- Idempotency
+- Business rules and validation
 - Refund eligibility
 - Payment and delivery state
-- Persisting refunds and tickets
+- Idempotency
+- Financial mutations
+- Persistence of refunds and support tickets
 
-The LLM and RAG layer are **not authoritative for state-changing business decisions**. Retrieved policy context helps explain a decision; deterministic Java services decide whether a refund can actually be created.
+RAG is also **not authoritative** for state-changing decisions. Retrieved policy content is context; deterministic Java services decide whether an action is actually allowed.
 
 ## Single Agent vs Multi-Agent
 
-The UI on this branch lets you choose between the two implementations.
+The UI supports both architectures so the same customer request can be compared directly.
 
 ```text
 Single Agent
@@ -95,23 +116,23 @@ Supervisor
     +--> Communication Agent
 ```
 
-Single-agent endpoint:
+### Single-agent endpoint
 
 ```http
 POST /api/agent/resolve
 ```
 
-Multi-agent endpoint:
+### Multi-agent endpoint
 
 ```http
 POST /api/multi-agent/resolve
 ```
 
-The same customer request can therefore be tested against both architectures.
+See the detailed architecture guide: [`docs/multi-agent.md`](docs/multi-agent.md).
 
-## RAG / policy knowledge base
+## Agentic RAG
 
-The policy knowledge base lives under:
+Policy knowledge is stored as Markdown files under:
 
 ```text
 src/main/resources/knowledge/
@@ -122,30 +143,36 @@ src/main/resources/knowledge/
 └── damaged-item-policy.md
 ```
 
-At startup, `PolicyKnowledgeService`:
+At startup:
 
-1. Loads the Markdown policy files.
-2. Converts each file into a Spring AI `Document`.
-3. Splits documents into embedding-sized chunks with `TokenTextSplitter`.
-4. Generates OpenAI embeddings using `text-embedding-3-small`.
-5. Stores the chunks in PostgreSQL/PGVector.
-6. Skips re-indexing when the policy documents are already present.
+```text
+Policy Markdown
+      |
+      v
+Spring AI Document
+      |
+      v
+TokenTextSplitter
+      |
+      v
+OpenAI text-embedding-3-small
+      |
+      v
+PostgreSQL / PGVector
+```
 
 At runtime:
 
 ```text
-Customer request
-      |
-      v
 Resolution Agent
       |
-      +--> searchKnowledgeBase(...)
+      +--> searchKnowledgeBase(query)
                  |
                  v
             Query embedding
                  |
                  v
-             PGVector
+              PGVector
                  |
                  v
           Relevant policy chunks
@@ -158,78 +185,51 @@ Resolution Agent
                  +--> createRefund() if backend allows
 ```
 
-The RAG search is exposed as a Spring AI tool:
+Detailed explanation: [`docs/rag.md`](docs/rag.md).
 
-```java
-searchKnowledgeBase(String query)
-```
-
-This means the model/tool layer can retrieve policy context without getting direct database access.
-
-### Important design decision
-
-RAG does **not** replace the deterministic refund policy.
-
-For example:
+### Important RAG safety boundary
 
 ```text
-RAG says:
-"Orders delayed by 3+ days may qualify..."
-
-             |
-             v
-checkRefundPolicy(orderNumber)
-             |
-             v
+RAG context
+     |
+     v
+checkRefundPolicy()
+     |
+     v
 Deterministic backend decision
-             |
-       +-----+-----+
-       |           |
-    eligible    rejected
-       |           |
-       v           v
- createRefund   explain reason
+     |
+   +---+---+
+   |       |
+eligible rejected
+   |       |
+   v       v
+refund   explain
 ```
 
-This prevents hallucinated policy text from directly causing a financial mutation.
+A retrieved document cannot directly authorize a financial mutation.
 
-## RAG observability
+## Tool Calling
 
-RAG operations are included in the existing execution trace:
+Business capabilities are exposed as typed Spring AI tools. Examples include:
 
-| Event | Meaning |
+| Tool | Purpose |
 |---|---|
-| `KNOWLEDGE_SEARCH` | Policy vector search started |
-| `KNOWLEDGE_RESPONSE` | Relevant policy chunks were returned |
-| `TOOL_REQUEST` | Backend/tool invocation started |
-| `TOOL_RESPONSE` | Tool completed successfully |
-| `TOOL_ERROR` | Tool failed |
+| `getCustomer` | Retrieve customer facts |
+| `getOrder` | Retrieve order state |
+| `getDeliveryStatus` | Determine delivery status and delay |
+| `getPayment` | Verify payment state and amount |
+| `searchKnowledgeBase` | Retrieve relevant policy context |
+| `checkRefundPolicy` | Get authoritative refund eligibility |
+| `createRefund` | Execute a controlled, idempotent refund |
+| `getSupportTicket` | Retrieve an existing support ticket |
 
-A multi-agent refund request can therefore show:
+The agent never gets direct JPA repository access. See [`docs/tool-calling.md`](docs/tool-calling.md).
 
-```text
-Supervisor Agent
-      |
-      +--> Order Investigation Agent
-      |       +--> getOrder
-      |       +--> getDeliveryStatus
-      |       +--> getPayment
-      |
-      +--> Resolution Agent
-              +--> KNOWLEDGE_SEARCH
-              +--> KNOWLEDGE_RESPONSE
-              +--> checkRefundPolicy
-              +--> createRefund
-      |
-      +--> Communication Agent
-              +--> OpenAI
-```
+## Live Observability
 
-## Live observability
+Execution tracing provides operational visibility into the model/tool workflow without exposing hidden reasoning or chain-of-thought.
 
-The application exposes execution traces through SSE for the single-agent flow and maintains the same trace model for multi-agent execution.
-
-Example event types include:
+Events include:
 
 ```text
 AGENT_STARTED
@@ -245,7 +245,21 @@ AGENT_COMPLETED
 AGENT_ERROR
 ```
 
-This provides operational visibility without exposing prompts, credentials, hidden reasoning, or chain-of-thought.
+The UI can show execution traces and durations, while SSE provides live execution events for the streaming flow.
+
+See [`docs/observability.md`](docs/observability.md).
+
+## UI
+
+The web UI provides:
+
+- Single Agent / Multi-Agent architecture selector
+- Customer chat interface
+- Response Markdown formatting
+- Loading state while an API request is running
+- Tool and knowledge execution trace presentation
+
+See [`docs/ui.md`](docs/ui.md).
 
 ## OpenAI configuration
 
@@ -263,28 +277,30 @@ RAG_SIMILARITY_THRESHOLD=0.60
 
 `.env` must never be committed.
 
-### Docker
+## Run locally
 
-The Compose setup uses a PGVector-enabled PostgreSQL image:
+### Docker Compose
+
+The local stack uses PGVector-enabled PostgreSQL:
 
 ```text
 pgvector/pgvector:pg17
 ```
 
-Start everything with:
+Start:
 
 ```bash
 docker compose up --build
 ```
 
-If you already have an old PostgreSQL volume from the non-PGVector image, recreate it for the demo environment:
+If an existing local PostgreSQL volume was created before PGVector was introduced, recreate the demo database:
 
 ```bash
 docker compose down -v
 docker compose up --build
 ```
 
-**Warning:** `down -v` deletes the local demo database volume. Do not use it against production data.
+> **Warning:** `docker compose down -v` deletes the local demo database volume. Never use it against production data.
 
 ## Example request
 
@@ -296,7 +312,7 @@ curl -X POST http://localhost:8080/api/multi-agent/resolve \
   }'
 ```
 
-Expected high-level execution:
+High-level execution:
 
 ```text
 Customer
@@ -310,9 +326,9 @@ Supervisor
   |      +--> getPayment(1002)
   |
   +--> Resolution Agent
-         +--> RAG: refund policy
-         +--> checkRefundPolicy(1002)
-         +--> createRefund(1002)
+  |      +--> RAG: refund policy
+  |      +--> checkRefundPolicy(1002)
+  |      +--> createRefund(1002)
   |
   +--> Communication Agent
          +--> customer response
@@ -331,24 +347,34 @@ The backend enforces:
 
 These rules are deterministic. OpenAI and RAG cannot override them.
 
-## Agent tools
+## Safety boundary
 
-| Tool | Purpose |
-|---|---|
-| `getCustomer` | Retrieve customer facts |
-| `getOrder` | Retrieve order state |
-| `getDeliveryStatus` | Determine delivery status and delay |
-| `getPayment` | Verify payment state and amount |
-| `searchKnowledgeBase` | Retrieve relevant policy context from PGVector |
-| `checkRefundPolicy` | Get the authoritative refund decision |
-| `createRefund` | Execute a controlled, idempotent refund |
-| `getSupportTicket` | Retrieve an existing support ticket |
+For financial actions:
 
-The tools delegate to `CustomerSupportService`; agents never access JPA repositories directly.
+```text
+LLM / RAG
+   |
+   v
+checkRefundPolicy()
+   |
+   v
+CustomerSupportService
+   |
+   +--> validation
+   +--> payment state
+   +--> delay threshold
+   +--> refund limit
+   +--> idempotency
+   |
+   v
+createRefund()
+```
 
-## Learning roadmap
+See [`docs/safety-boundary.md`](docs/safety-boundary.md).
 
-Implemented on this project:
+## Project learning roadmap
+
+### Implemented
 
 - Tool calling
 - Single-agent orchestration
@@ -356,19 +382,36 @@ Implemented on this project:
 - Agent-to-agent task/result contracts
 - PostgreSQL-backed business tools
 - OpenAI integration
-- RAG with embeddings + PGVector
+- Agentic RAG
+- Embeddings + PGVector
 - Policy document ingestion
 - Live execution tracing
 - SSE observability
-- Single vs multi-agent UI comparison
+- Single vs Multi-Agent UI
 
-Next concepts:
+### Next
 
 - Human-in-the-loop approval
 - Agent memory
 - Guardrails and prompt-injection defense
-- Evaluation and RAG quality measurement
-- Retry / timeout / circuit-breaker strategies
+- Agent evaluation / RAG quality measurement
+- Retry, timeout, and circuit-breaker strategies
 - MCP
 - Cost and latency optimization
-- Framework comparison with LangChain4j
+- LangChain4j implementation for framework comparison
+
+## Documentation map
+
+```text
+docs/
+├── README.md              # Feature documentation index
+├── tool-calling.md        # Tool calling
+├── single-agent.md        # Single-agent orchestration
+├── multi-agent.md         # Supervisor + specialist agents
+├── rag.md                 # Agentic RAG + PGVector
+├── observability.md       # Trace events + SSE
+├── ui.md                  # Demo UI and architecture selector
+└── safety-boundary.md     # Deterministic backend safety model
+```
+
+For the detailed explanation of any feature, start from [`docs/README.md`](docs/README.md).
