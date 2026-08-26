@@ -17,10 +17,12 @@ spring:
     enabled: true
     locations: classpath:db/migration
   ai:
-    openai:
-      api-key: ${OPENAI_API_KEY:}
-      chat:
-        model: ${OPENAI_MODEL:gpt-5-mini}
+    google:
+      genai:
+        api-key: ${GEMINI_API_KEY:}
+        chat:
+          options:
+            model: ${GEMINI_MODEL:gemini-2.5-flash}
 
 agent:
   enabled: ${AGENT_ENABLED:false}
