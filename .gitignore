@@ -24,3 +24,4 @@
 
 # Spring
 spring-configuration-metadata.json
+/target/
