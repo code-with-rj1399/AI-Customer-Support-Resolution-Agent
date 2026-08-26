@@ -8,17 +8,20 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
-/**
- * Supervisor/orchestrator agent.
- *
- * The model is responsible for intent understanding, planning and tool selection.
- * Domain services remain responsible for deterministic business rules and state changes.
- */
 @Service
 @ConditionalOnProperty(prefix = "agent", name = "enabled", havingValue = "true")
 public class AgentOrchestrator {
     private static final Logger log = LoggerFactory.getLogger(AgentOrchestrator.class);
+    private static final ScheduledExecutorService WAITING_LOGGER = Executors.newScheduledThreadPool(1, runnable -> {
+        Thread thread = new Thread(runnable, "agent-model-waiting");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     private static final String SYSTEM_PROMPT = """
             You are the Customer Support Supervisor Agent.
@@ -49,18 +52,30 @@ public class AgentOrchestrator {
     }
 
     public AgentResult resolve(String customerMessage) {
-        String executionId = traceStore.start();
+        return resolve(customerMessage, traceStore.start());
+    }
+
+    public AgentResult resolve(String customerMessage, String executionId) {
         long started = System.nanoTime();
         add(executionId, AgentTrace.TraceEventType.AGENT_STARTED, "orchestrator", "resolve", 0,
                 Map.of("messageLength", customerMessage.length()));
         log.info("agent.execution.started executionId={} messageLength={}", executionId, customerMessage.length());
 
         CustomerSupportAgentTools.bindExecution(executionId);
+        ScheduledFuture<?> waitingTask = null;
         try {
             long modelStarted = System.nanoTime();
             add(executionId, AgentTrace.TraceEventType.MODEL_REQUEST, "model", "chat", 0,
                     Map.of("provider", "google-gemini", "tools", 7));
             log.info("agent.model.request executionId={} tools={}", executionId, 7);
+
+            waitingTask = WAITING_LOGGER.scheduleAtFixedRate(() -> {
+                long elapsed = elapsedMs(modelStarted);
+                add(executionId, AgentTrace.TraceEventType.MODEL_WAITING, "model", "chat", elapsed,
+                        Map.of("status", "WAITING_FOR_MODEL_OR_TOOL_LOOP", "elapsedMs", elapsed));
+                log.info("agent.model.waiting executionId={} elapsedMs={} status=WAITING_FOR_MODEL_OR_TOOL_LOOP",
+                        executionId, elapsed);
+            }, 2, 2, TimeUnit.SECONDS);
 
             String response = chatClient.prompt()
                     .system(SYSTEM_PROMPT)
@@ -82,7 +97,9 @@ public class AgentOrchestrator {
             log.error("agent.execution.failed executionId={} durationMs={} errorType={}", executionId, elapsedMs(started), ex.getClass().getSimpleName(), ex);
             throw ex;
         } finally {
+            if (waitingTask != null) waitingTask.cancel(false);
             CustomerSupportAgentTools.clearExecution();
+            traceStore.complete(executionId);
         }
     }
 
