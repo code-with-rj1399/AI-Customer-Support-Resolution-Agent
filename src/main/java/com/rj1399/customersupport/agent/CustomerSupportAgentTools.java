@@ -1,6 +1,7 @@
 package com.rj1399.customersupport.agent;
 
 import com.rj1399.customersupport.api.ApiDtos;
+import com.rj1399.customersupport.hitl.HumanApprovalService;
 import com.rj1399.customersupport.rag.PolicyKnowledgeService;
 import com.rj1399.customersupport.service.CustomerSupportService;
 import org.slf4j.Logger;
@@ -26,13 +27,16 @@ public class CustomerSupportAgentTools {
     private final CustomerSupportService service;
     private final AgentTraceStore traceStore;
     private final PolicyKnowledgeService knowledgeService;
+    private final HumanApprovalService humanApprovalService;
 
     public CustomerSupportAgentTools(CustomerSupportService service,
                                      AgentTraceStore traceStore,
-                                     PolicyKnowledgeService knowledgeService) {
+                                     PolicyKnowledgeService knowledgeService,
+                                     HumanApprovalService humanApprovalService) {
         this.service = service;
         this.traceStore = traceStore;
         this.knowledgeService = knowledgeService;
+        this.humanApprovalService = humanApprovalService;
     }
 
     public static void bindExecution(String executionId) { CURRENT_EXECUTION.set(executionId); }
@@ -91,7 +95,46 @@ public class CustomerSupportAgentTools {
         }
     }
 
-    @Tool(description = "Create a refund for an eligible order. Requires a unique idempotency key. The backend enforces refund eligibility, payment state, refund limits and duplicate protection.")
+    @Tool(description = "Request a refund. The backend first validates the refund policy and payment state. Refunds above the configured human-approval threshold create a pending human approval instead of executing the refund. Never claim the refund was completed when this tool returns a pending approval.")
+    public RefundActionResult requestRefund(String orderNumber, String reason, String idempotencyKey) {
+        String executionId = CURRENT_EXECUTION.get();
+        ApiDtos.RefundPolicyResponse policy = service.checkRefundPolicy(orderNumber);
+        if (!policy.eligible()) {
+            return new RefundActionResult("REJECTED", orderNumber, policy.message(), null, null);
+        }
+
+        ApiDtos.PaymentResponse payment = service.getPayment(orderNumber);
+        if (!"CAPTURED".equalsIgnoreCase(payment.status())) {
+            return new RefundActionResult("REJECTED", orderNumber, "Refund requires a captured payment.", null, null);
+        }
+
+        if (humanApprovalService.requiresApproval(payment.amount())) {
+            HumanApprovalService.Approval approval = humanApprovalService.create(
+                    orderNumber,
+                    payment.amount(),
+                    reason,
+                    executionId);
+            if (executionId != null) {
+                traceStore.add(new AgentTrace(executionId, Instant.now(), AgentTrace.TraceEventType.HUMAN_APPROVAL_REQUESTED,
+                        "hitl", "refund-approval", 0,
+                        Map.of("approvalId", approval.id().toString(), "orderNumber", orderNumber, "amount", payment.amount())));
+            }
+            log.info("agent.hitl.requested executionId={} approvalId={} orderNumber={} amount={}", executionId, approval.id(), orderNumber, payment.amount());
+            return new RefundActionResult("PENDING_HUMAN_APPROVAL", orderNumber,
+                    "Refund is eligible but requires human approval because the amount exceeds the automatic approval threshold.",
+                    approval.id(), payment.amount());
+        }
+
+        ApiDtos.RefundResponse refund = createRefund(orderNumber, reason, idempotencyKey);
+        return new RefundActionResult("COMPLETED", orderNumber,
+                "Refund created successfully.", null, refund.amount());
+    }
+
+    /**
+     * Kept as a backend-controlled tool for approved actions. Agents should use requestRefund()
+     * for new refund requests so they cannot bypass the HITL threshold.
+     */
+    @Tool(description = "Create a refund only after the refund request has passed the backend approval flow. Do not call this directly for a new customer refund request; use requestRefund instead.")
     public ApiDtos.RefundResponse createRefund(String orderNumber, String reason, String idempotencyKey) {
         return execute("createRefund", Map.of("orderNumber", orderNumber, "reason", reason),
                 () -> service.createRefund(new ApiDtos.RefundRequest(orderNumber, reason, idempotencyKey)));
@@ -124,7 +167,7 @@ public class CustomerSupportAgentTools {
             if (executionId != null) {
                 traceStore.add(new AgentTrace(executionId, Instant.now(), AgentTrace.TraceEventType.TOOL_ERROR,
                         "tool", toolName, duration,
-                        Map.of("errorType", ex.getClass().getSimpleName(), "message", safe(ex.getMessage()))));
+                        Map.of("errorType", ex.getClass().getSimpleName(), "message", safe(ex.getMessage())));
             }
             log.error("agent.tool.failed executionId={} tool={} durationMs={} errorType={}", executionId, toolName, duration, ex.getClass().getSimpleName(), ex);
             throw ex;
@@ -135,6 +178,8 @@ public class CustomerSupportAgentTools {
         if (value == null) return "";
         return value.length() > 300 ? value.substring(0, 300) : value;
     }
+
+    public record RefundActionResult(String status, String orderNumber, String message, UUID approvalId, java.math.BigDecimal amount) {}
 
     @FunctionalInterface
     private interface ToolCall<T> { T call(); }
