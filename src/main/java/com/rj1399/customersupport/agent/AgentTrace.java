@@ -15,6 +15,7 @@ public record AgentTrace(
     public enum TraceEventType {
         AGENT_STARTED,
         MODEL_REQUEST,
+        MODEL_WAITING,
         MODEL_RESPONSE,
         TOOL_REQUEST,
         TOOL_RESPONSE,
