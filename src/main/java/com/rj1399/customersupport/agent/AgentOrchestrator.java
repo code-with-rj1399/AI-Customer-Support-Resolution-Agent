@@ -66,8 +66,8 @@ public class AgentOrchestrator {
         try {
             long modelStarted = System.nanoTime();
             add(executionId, AgentTrace.TraceEventType.MODEL_REQUEST, "model", "chat", 0,
-                    Map.of("provider", "google-gemini", "tools", 7));
-            log.info("agent.model.request executionId={} tools={}", executionId, 7);
+                    Map.of("provider", "openai", "tools", 7));
+            log.info("agent.model.request executionId={} provider=openai tools={}", executionId, 7);
 
             waitingTask = WAITING_LOGGER.scheduleAtFixedRate(() -> {
                 long elapsed = elapsedMs(modelStarted);
@@ -86,7 +86,7 @@ public class AgentOrchestrator {
 
             long modelDuration = elapsedMs(modelStarted);
             add(executionId, AgentTrace.TraceEventType.MODEL_RESPONSE, "model", "chat", modelDuration,
-                    Map.of("responseLength", response == null ? 0 : response.length()));
+                    Map.of("provider", "openai", "responseLength", response == null ? 0 : response.length()));
             add(executionId, AgentTrace.TraceEventType.AGENT_COMPLETED, "orchestrator", "resolve", elapsedMs(started),
                     Map.of("status", "COMPLETED"));
             log.info("agent.execution.completed executionId={} durationMs={}", executionId, elapsedMs(started));
