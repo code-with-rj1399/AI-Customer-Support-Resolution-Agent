@@ -55,11 +55,12 @@ public class AgentOrchestrator {
                 Map.of("messageLength", customerMessage.length()));
         log.info("agent.execution.started executionId={} messageLength={}", executionId, customerMessage.length());
 
+        CustomerSupportAgentTools.bindExecution(executionId);
         try {
             long modelStarted = System.nanoTime();
             add(executionId, AgentTrace.TraceEventType.MODEL_REQUEST, "model", "chat", 0,
-                    Map.of("model", "configured-gemini-model", "tools", 5));
-            log.info("agent.model.request executionId={} tools={}", executionId, 5);
+                    Map.of("provider", "google-gemini", "tools", 7));
+            log.info("agent.model.request executionId={} tools={}", executionId, 7);
 
             String response = chatClient.prompt()
                     .system(SYSTEM_PROMPT)
@@ -80,6 +81,8 @@ public class AgentOrchestrator {
                     Map.of("errorType", ex.getClass().getSimpleName(), "message", safe(ex.getMessage())));
             log.error("agent.execution.failed executionId={} durationMs={} errorType={}", executionId, elapsedMs(started), ex.getClass().getSimpleName(), ex);
             throw ex;
+        } finally {
+            CustomerSupportAgentTools.clearExecution();
         }
     }
 
