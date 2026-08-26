@@ -21,6 +21,7 @@ The README gives the high-level architecture. Each major concept has a focused g
 | Live Observability / SSE | [`docs/observability.md`](docs/observability.md) |
 | Agent UI | [`docs/ui.md`](docs/ui.md) |
 | Safety Boundary | [`docs/safety-boundary.md`](docs/safety-boundary.md) |
+| Guardrails / Prompt Injection | [`docs/guardrails.md`](docs/guardrails.md) |
 
 **Recommended learning path:** Tool Calling → Single Agent → Multi-Agent → RAG → Observability → Human-in-the-Loop → Memory → Guardrails → Evaluation.
 
@@ -46,6 +47,12 @@ The README gives the high-level architecture. Each major concept has a focused g
                                   |
                                   v
                          +-------------------+
+                         | Input Guardrail   |
+                         | Prompt Injection  |
+                         +---------+---------+
+                                   |
+                                   v
+                         +-------------------+
                          | Supervisor Agent  |
                          +---------+---------+
                                    |
@@ -65,15 +72,65 @@ The README gives the high-level architecture. Each major concept has a focused g
                                     |
                      +--------------+--------------+
                      |       Policy Documents      |
-                     | refund / shipping / payment |
-                     | cancellation / damaged item |
-                     +-----------------------------+
+                     +--------------+--------------+
                                     |
                                     v
                           Deterministic Backend
                                     |
+                           Tool Guardrails
+                                    |
                                  PostgreSQL
 ```
+
+## Guardrails and prompt-injection defense
+
+The agent uses **defense in depth**. User messages are validated before reaching the LLM, while high-risk tool calls are validated again by deterministic application code.
+
+```text
+Customer input
+      |
+      v
+PromptInjectionGuardrail
+      |
+      +---- BLOCKED
+      |
+      v
+     LLM
+      |
+      +---- RAG / Tool results are UNTRUSTED DATA
+      |
+      v
+ToolExecutionGuardrail
+      |
+      v
+Backend policy + authorization
+      |
+      +---- HITL approval when required
+      |
+      v
+Financial mutation
+```
+
+### Input protection
+
+`PromptInjectionGuardrail` currently enforces:
+
+- Empty-input validation
+- 8,000-character input limit
+- Detection of common prompt-injection and jailbreak patterns
+- Blocking before the model is invoked
+
+### Untrusted content boundary
+
+Retrieved RAG documents and tool results are treated as **data, never instructions**. A retrieved document cannot override system rules or authorize a financial mutation.
+
+### High-risk tool protection
+
+Refund operations are treated as high risk. The agent should request a refund through `requestRefund()`, while deterministic backend code controls policy validation, payment validation, idempotency, and human approval.
+
+`createRefund()` must never be used to bypass the approval workflow.
+
+See [`docs/guardrails.md`](docs/guardrails.md) for the detailed security model, implementation, limitations, and production-hardening recommendations.
 
 ## Responsibility boundary
 
@@ -94,6 +151,7 @@ The README gives the high-level architecture. Each major concept has a focused g
 - Idempotency
 - Financial mutations
 - Persistence of refunds and support tickets
+- Security and authorization guardrails
 
 RAG is also **not authoritative** for state-changing decisions. Retrieved policy content is context; deterministic Java services decide whether an action is actually allowed.
 
@@ -182,7 +240,7 @@ Resolution Agent
                  |
                  +--> checkRefundPolicy()
                  |
-                 +--> createRefund() if backend allows
+                 +--> requestRefund()
 ```
 
 Detailed explanation: [`docs/rag.md`](docs/rag.md).
@@ -220,7 +278,8 @@ Business capabilities are exposed as typed Spring AI tools. Examples include:
 | `getPayment` | Verify payment state and amount |
 | `searchKnowledgeBase` | Retrieve relevant policy context |
 | `checkRefundPolicy` | Get authoritative refund eligibility |
-| `createRefund` | Execute a controlled, idempotent refund |
+| `requestRefund` | Request a controlled refund through policy/HITL checks |
+| `createRefund` | Controlled backend refund execution |
 | `getSupportTicket` | Retrieve an existing support ticket |
 
 The agent never gets direct JPA repository access. See [`docs/tool-calling.md`](docs/tool-calling.md).
@@ -312,28 +371,6 @@ curl -X POST http://localhost:8080/api/multi-agent/resolve \
   }'
 ```
 
-High-level execution:
-
-```text
-Customer
-  |
-  v
-Supervisor
-  |
-  +--> Order Agent
-  |      +--> getOrder(1002)
-  |      +--> getDeliveryStatus(1002)
-  |      +--> getPayment(1002)
-  |
-  +--> Resolution Agent
-  |      +--> RAG: refund policy
-  |      +--> checkRefundPolicy(1002)
-  |      +--> createRefund(1002)
-  |
-  +--> Communication Agent
-         +--> customer response
-```
-
 ## Business rules
 
 The backend enforces:
@@ -345,7 +382,7 @@ The backend enforces:
 - Refund creation requires an idempotency key.
 - Repeating a refund request with the same idempotency key returns the existing refund.
 
-These rules are deterministic. OpenAI and RAG cannot override them.
+These rules are deterministic. OpenAI, RAG, and user-provided instructions cannot override them.
 
 ## Safety boundary
 
@@ -355,7 +392,10 @@ For financial actions:
 LLM / RAG
    |
    v
-checkRefundPolicy()
+requestRefund()
+   |
+   v
+Guardrails
    |
    v
 CustomerSupportService
@@ -365,12 +405,13 @@ CustomerSupportService
    +--> delay threshold
    +--> refund limit
    +--> idempotency
+   +--> HITL approval when required
    |
    v
 createRefund()
 ```
 
-See [`docs/safety-boundary.md`](docs/safety-boundary.md).
+See [`docs/safety-boundary.md`](docs/safety-boundary.md) and [`docs/guardrails.md`](docs/guardrails.md).
 
 ## Project learning roadmap
 
@@ -388,12 +429,12 @@ See [`docs/safety-boundary.md`](docs/safety-boundary.md).
 - Live execution tracing
 - SSE observability
 - Single vs Multi-Agent UI
+- Human-in-the-loop refund approval
+- Guardrails and prompt-injection defense
 
 ### Next
 
-- Human-in-the-loop approval
 - Agent memory
-- Guardrails and prompt-injection defense
 - Agent evaluation / RAG quality measurement
 - Retry, timeout, and circuit-breaker strategies
 - MCP
@@ -411,7 +452,8 @@ docs/
 ├── rag.md                 # Agentic RAG + PGVector
 ├── observability.md       # Trace events + SSE
 ├── ui.md                  # Demo UI and architecture selector
-└── safety-boundary.md     # Deterministic backend safety model
+├── safety-boundary.md     # Deterministic backend safety model
+└── guardrails.md          # Prompt-injection defense and guardrails
 ```
 
 For the detailed explanation of any feature, start from [`docs/README.md`](docs/README.md).
