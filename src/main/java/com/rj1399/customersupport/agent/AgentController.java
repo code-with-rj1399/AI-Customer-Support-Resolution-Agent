@@ -2,11 +2,13 @@ package com.rj1399.customersupport.agent;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/agent")
+@ConditionalOnProperty(prefix = "agent", name = "enabled", havingValue = "true")
 public class AgentController {
 
     private final AgentOrchestrator orchestrator;
