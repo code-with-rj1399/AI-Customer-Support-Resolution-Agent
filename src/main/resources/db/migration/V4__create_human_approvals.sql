@@ -3,6 +3,7 @@ CREATE TABLE human_approvals (
     order_number VARCHAR(30) NOT NULL,
     amount NUMERIC(12,2) NOT NULL,
     reason VARCHAR(500) NOT NULL,
+    idempotency_key VARCHAR(100) NOT NULL UNIQUE,
     status VARCHAR(20) NOT NULL,
     execution_id VARCHAR(100),
     created_at TIMESTAMPTZ NOT NULL,
