@@ -1,6 +1,7 @@
 package com.rj1399.customersupport.agent;
 
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 /**
@@ -10,6 +11,7 @@ import org.springframework.stereotype.Service;
  * Domain services remain responsible for deterministic business rules and state changes.
  */
 @Service
+@ConditionalOnProperty(prefix = "agent", name = "enabled", havingValue = "true")
 public class AgentOrchestrator {
 
     private static final String SYSTEM_PROMPT = """
