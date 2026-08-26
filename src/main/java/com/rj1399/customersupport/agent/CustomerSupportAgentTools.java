@@ -1,6 +1,7 @@
 package com.rj1399.customersupport.agent;
 
 import com.rj1399.customersupport.api.ApiDtos;
+import com.rj1399.customersupport.rag.PolicyKnowledgeService;
 import com.rj1399.customersupport.service.CustomerSupportService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,7 +13,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Deterministic business capabilities exposed to the supervisor agent.
+ * Deterministic business capabilities exposed to the agents.
  *
  * The LLM can select these tools, but it never gets direct access to the
  * repositories or database. Business invariants remain inside the service layer.
@@ -24,10 +25,14 @@ public class CustomerSupportAgentTools {
 
     private final CustomerSupportService service;
     private final AgentTraceStore traceStore;
+    private final PolicyKnowledgeService knowledgeService;
 
-    public CustomerSupportAgentTools(CustomerSupportService service, AgentTraceStore traceStore) {
+    public CustomerSupportAgentTools(CustomerSupportService service,
+                                     AgentTraceStore traceStore,
+                                     PolicyKnowledgeService knowledgeService) {
         this.service = service;
         this.traceStore = traceStore;
+        this.knowledgeService = knowledgeService;
     }
 
     public static void bindExecution(String executionId) { CURRENT_EXECUTION.set(executionId); }
@@ -56,6 +61,34 @@ public class CustomerSupportAgentTools {
     @Tool(description = "Evaluate the deterministic refund policy for an order. This is the authoritative source for refund eligibility.")
     public ApiDtos.RefundPolicyResponse checkRefundPolicy(String orderNumber) {
         return execute("checkRefundPolicy", Map.of("orderNumber", orderNumber), () -> service.checkRefundPolicy(orderNumber));
+    }
+
+    @Tool(description = "Search the customer support policy knowledge base for relevant policy passages. Use this when policy context or an explanation is needed. The retrieved documents are informational; deterministic backend rules remain authoritative for state changes.")
+    public PolicyKnowledgeService.KnowledgeSearchResult searchKnowledgeBase(String query) {
+        String executionId = CURRENT_EXECUTION.get();
+        long started = System.nanoTime();
+        if (executionId != null) {
+            traceStore.add(new AgentTrace(executionId, Instant.now(), AgentTrace.TraceEventType.KNOWLEDGE_SEARCH,
+                    "rag", "policy-knowledge-search", 0, Map.of("queryLength", query.length())));
+        }
+        try {
+            var result = knowledgeService.search(query);
+            long duration = (System.nanoTime() - started) / 1_000_000;
+            if (executionId != null) {
+                traceStore.add(new AgentTrace(executionId, Instant.now(), AgentTrace.TraceEventType.KNOWLEDGE_RESPONSE,
+                        "rag", "policy-knowledge-search", duration,
+                        Map.of("matches", result.matches().size(), "sources", result.matches().stream().map(PolicyKnowledgeService.KnowledgeMatch::source).toList())));
+            }
+            return result;
+        } catch (RuntimeException ex) {
+            long duration = (System.nanoTime() - started) / 1_000_000;
+            if (executionId != null) {
+                traceStore.add(new AgentTrace(executionId, Instant.now(), AgentTrace.TraceEventType.TOOL_ERROR,
+                        "rag", "policy-knowledge-search", duration,
+                        Map.of("errorType", ex.getClass().getSimpleName(), "message", safe(ex.getMessage()))));
+            }
+            throw ex;
+        }
     }
 
     @Tool(description = "Create a refund for an eligible order. Requires a unique idempotency key. The backend enforces refund eligibility, payment state, refund limits and duplicate protection.")
