@@ -20,6 +20,8 @@ public record AgentTrace(
         TOOL_REQUEST,
         TOOL_RESPONSE,
         TOOL_ERROR,
+        KNOWLEDGE_SEARCH,
+        KNOWLEDGE_RESPONSE,
         AGENT_COMPLETED,
         AGENT_ERROR
     }
