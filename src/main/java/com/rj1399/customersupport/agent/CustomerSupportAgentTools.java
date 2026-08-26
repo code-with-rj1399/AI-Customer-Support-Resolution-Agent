@@ -89,7 +89,7 @@ public class CustomerSupportAgentTools {
             if (executionId != null) {
                 traceStore.add(new AgentTrace(executionId, Instant.now(), AgentTrace.TraceEventType.TOOL_ERROR,
                         "rag", "policy-knowledge-search", duration,
-                        Map.of("errorType", ex.getClass().getSimpleName(), "message", safe(ex.getMessage())));
+                        Map.of("errorType", ex.getClass().getSimpleName(), "message", safe(ex.getMessage()))));
             }
             throw ex;
         }
