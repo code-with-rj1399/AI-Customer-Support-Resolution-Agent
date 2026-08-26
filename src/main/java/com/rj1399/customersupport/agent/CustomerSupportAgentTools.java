@@ -100,7 +100,7 @@ public class CustomerSupportAgentTools {
         String executionId = CURRENT_EXECUTION.get();
         ApiDtos.RefundPolicyResponse policy = service.checkRefundPolicy(orderNumber);
         if (!policy.eligible()) {
-            return new RefundActionResult("REJECTED", orderNumber, policy.message(), null, null);
+            return new RefundActionResult("REJECTED", orderNumber, policy.rule(), null, null);
         }
 
         ApiDtos.PaymentResponse payment = service.getPayment(orderNumber);
@@ -130,10 +130,6 @@ public class CustomerSupportAgentTools {
                 "Refund created successfully.", null, refund.amount());
     }
 
-    /**
-     * Kept as a backend-controlled tool for approved actions. Agents should use requestRefund()
-     * for new refund requests so they cannot bypass the HITL threshold.
-     */
     @Tool(description = "Create a refund only after the refund request has passed the backend approval flow. Do not call this directly for a new customer refund request; use requestRefund instead.")
     public ApiDtos.RefundResponse createRefund(String orderNumber, String reason, String idempotencyKey) {
         return execute("createRefund", Map.of("orderNumber", orderNumber, "reason", reason),
