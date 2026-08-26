@@ -19,10 +19,11 @@ public class AgentController {
 
     @PostMapping(value = "/resolve", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     public AgentResponse resolve(@Valid @RequestBody AgentRequest request) {
-        return new AgentResponse(orchestrator.resolve(request.message()));
+        AgentOrchestrator.AgentResult result = orchestrator.resolve(request.message());
+        return new AgentResponse(result.executionId(), result.response());
     }
 
     public record AgentRequest(@NotBlank(message = "message must not be blank") String message) {}
 
-    public record AgentResponse(String response) {}
+    public record AgentResponse(String executionId, String response) {}
 }
