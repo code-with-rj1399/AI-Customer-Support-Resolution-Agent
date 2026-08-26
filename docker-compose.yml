@@ -28,8 +28,8 @@ services:
       DB_PASSWORD: customer_support
       SERVER_PORT: 8080
       AGENT_ENABLED: ${AGENT_ENABLED:-true}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPEN_AI_MODEL: ${OPEN_AI_MODEL:-gpt-5-mini}
     ports:
       - "8080:8080"
 

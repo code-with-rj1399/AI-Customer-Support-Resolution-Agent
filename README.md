@@ -1,8 +1,8 @@
 # AI Customer Support Resolution Agent
 
-A production-oriented customer-support backend and Agentic AI orchestration platform. The system uses Gemini through Spring AI for reasoning and tool selection, while the backend remains the source of truth for customer, order, payment, delivery, refund, and ticket state.
+A production-oriented customer-support backend and Agentic AI orchestration platform. The system uses **OpenAI through Spring AI** for reasoning and tool selection, while the backend remains the source of truth for customer, order, payment, delivery, refund, and ticket state.
 
-> **Current status:** The `dev` branch contains the deterministic backend plus the first Supervisor Agent implementation. The agent is intentionally thin: Gemini reasons about the request and selects typed tools; deterministic Java services enforce business rules and execute state changes.
+> **Current status:** The `dev` branch contains the deterministic backend, Supervisor Agent, OpenAI integration, typed business tools, and live execution observability. The agent is intentionally thin: OpenAI reasons about the request and selects tools; deterministic Java services enforce business rules and execute state changes.
 
 ## Technology baseline
 
@@ -16,7 +16,7 @@ A production-oriented customer-support backend and Agentic AI orchestration plat
 - Maven
 - Docker / Docker Compose
 - Spring AI 2.0.1
-- Google Gemini via `spring-ai-starter-model-google-genai`
+- OpenAI via `spring-ai-starter-model-openai`
 
 ## Architecture
 
@@ -26,7 +26,7 @@ A production-oriented customer-support backend and Agentic AI orchestration plat
                                 v
                   +---------------------------+
                   |    Supervisor Agent       |
-                  |  Spring AI + Gemini       |
+                  |  Spring AI + OpenAI       |
                   +-------------+-------------+
                                 |
                          Tool selection
@@ -77,20 +77,32 @@ The LLM is **not** trusted to implement business policy. It must call determinis
 
 ## Agent implementation
 
-The current Supervisor Agent is under:
+The Supervisor Agent is under:
 
 ```text
 src/main/java/com/rj1399/customersupport/agent/
 ├── AgentController.java
 ├── AgentOrchestrator.java
+├── AgentTrace.java
+├── AgentTraceStore.java
 └── CustomerSupportAgentTools.java
 ```
 
-### Agent endpoint
+### Agent endpoints
+
+Synchronous resolution:
 
 ```http
 POST /api/agent/resolve
 Content-Type: application/json
+```
+
+Live Server-Sent Events (SSE) resolution:
+
+```http
+POST /api/agent/resolve/stream
+Content-Type: application/json
+Accept: text/event-stream
 ```
 
 Example:
@@ -127,6 +139,59 @@ Final customer response
 
 The LLM can choose and sequence tools, but it cannot bypass the service layer.
 
+## Live observability
+
+The agent exposes a live execution stream so clients can see what the agent is doing while the model/tool loop is running. The stream uses **Server-Sent Events (SSE)** and is backed by an in-memory `AgentTraceStore`.
+
+A stream execution emits trace events such as:
+
+| Event | Meaning |
+|---|---|
+| `AGENT_STARTED` | Agent execution has started |
+| `MODEL_REQUEST` | Request is being sent to OpenAI |
+| `MODEL_WAITING` | OpenAI/model-tool loop is still running |
+| `TOOL_REQUEST` | A backend tool is being invoked |
+| `TOOL_RESPONSE` | Tool returned successfully |
+| `TOOL_ERROR` | Tool invocation failed |
+| `MODEL_RESPONSE` | OpenAI returned the final model response |
+| `AGENT_COMPLETED` | Agent execution completed |
+| `AGENT_ERROR` | Agent execution failed |
+
+Example SSE request:
+
+```bash
+curl -N -X POST http://localhost:8080/api/agent/resolve/stream \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: text/event-stream' \
+  -d '{
+    "message": "My order 1002 is five days late. I want a refund."
+  }'
+```
+
+The stream can surface progress similar to:
+
+```text
+data: {"type":"AGENT_STARTED",...}
+
+data: {"type":"MODEL_REQUEST",...}
+
+data: {"type":"MODEL_WAITING",...}
+
+data: {"type":"TOOL_REQUEST","name":"getOrder",...}
+
+data: {"type":"TOOL_RESPONSE","name":"getOrder",...}
+
+data: {"type":"TOOL_REQUEST","name":"checkRefundPolicy",...}
+
+data: {"type":"TOOL_RESPONSE","name":"checkRefundPolicy",...}
+
+data: {"type":"MODEL_RESPONSE",...}
+
+data: {"type":"AGENT_COMPLETED",...}
+```
+
+This provides operational visibility without exposing hidden model reasoning, prompts, credentials, or chain-of-thought.
+
 ## Spring AI tool layer
 
 `CustomerSupportAgentTools` exposes deterministic capabilities using Spring AI `@Tool` methods:
@@ -143,15 +208,15 @@ The LLM can choose and sequence tools, but it cannot bypass the service layer.
 
 The tools delegate to `CustomerSupportService`; the agent never accesses JPA repositories directly.
 
-## Gemini configuration
+## OpenAI configuration
 
-The `dev` branch uses Google Gemini rather than OpenAI.
+The `dev` branch uses **OpenAI** rather than Gemini.
 
 Create a local `.env` file:
 
 ```env
-GEMINI_API_KEY=your-gemini-api-key
-GEMINI_MODEL=gemini-2.5-flash
+OPENAI_API_KEY=your-openai-api-key
+OPEN_AI_MODEL=gpt-5-mini
 AGENT_ENABLED=true
 ```
 
@@ -163,15 +228,15 @@ Then start the application:
 docker compose up --build
 ```
 
-The Docker Compose configuration passes the Gemini configuration into the application:
+The Docker Compose configuration passes the OpenAI configuration into the application:
 
 ```yaml
-GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+OPEN_AI_MODEL: ${OPEN_AI_MODEL:-gpt-5-mini}
 AGENT_ENABLED: ${AGENT_ENABLED:-true}
 ```
 
-The agent endpoint is feature-gated. If `AGENT_ENABLED=false`, `/api/agent/resolve` is not registered.
+The agent endpoint is feature-gated. If `AGENT_ENABLED=false`, `/api/agent/resolve` and `/api/agent/resolve/stream` are not registered.
 
 ## Agentic use case
 
@@ -232,11 +297,11 @@ The backend enforces:
 - Refund creation requires an idempotency key.
 - Repeating a refund request with the same idempotency key returns the existing refund.
 
-These rules are deterministic. Gemini may reason about the customer's request, but it cannot override these rules.
+These rules are deterministic. OpenAI may reason about the customer's request, but it cannot override these rules.
 
 ## Tool failure and resilience roadmap
 
-The next agent-engineering iteration will distinguish retryable and non-retryable failures:
+The agent should distinguish retryable and non-retryable failures:
 
 ```text
 Tool call
@@ -252,7 +317,7 @@ Tool call
  +--> repeated failure ---------> Graceful fallback / escalation
 ```
 
-Gemini provider failures should similarly use bounded retries and timeouts. Authentication and malformed-request errors should not be retried blindly.
+OpenAI provider failures should similarly use bounded retries and timeouts. Authentication and malformed-request errors should not be retried blindly.
 
 ## Safety boundary
 
@@ -261,7 +326,7 @@ The agent must not translate natural-language reasoning directly into unrestrict
 For a refund:
 
 ```text
-Gemini reasoning
+OpenAI reasoning
       |
       v
 Refund Policy Tool
@@ -382,7 +447,7 @@ Repeat the same request with the same idempotency key to verify duplicate protec
 
 ## Try the Agentic AI flow
 
-1. Configure `.env` with a Gemini API key.
+1. Configure `.env` with an OpenAI API key.
 2. Set `AGENT_ENABLED=true`.
 3. Start the application with Docker Compose.
 4. Send a natural-language customer request:
@@ -390,6 +455,17 @@ Repeat the same request with the same idempotency key to verify duplicate protec
 ```bash
 curl -X POST http://localhost:8080/api/agent/resolve \
   -H 'Content-Type: application/json' \
+  -d '{
+    "message": "My order 1002 is five days late. I want a refund."
+  }'
+```
+
+For live progress, use the SSE endpoint:
+
+```bash
+curl -N -X POST http://localhost:8080/api/agent/resolve/stream \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: text/event-stream' \
   -d '{
     "message": "My order 1002 is five days late. I want a refund."
   }'
@@ -417,18 +493,19 @@ For production:
 ## Agent implementation roadmap
 
 1. Supervisor Agent + typed tools — **implemented**
-2. Gemini provider integration — **implemented**
-3. Tool execution tracing — next
-4. Bounded retries and timeouts — next
-5. Human approval for high-risk actions
-6. Conversation memory
-7. RAG over support policies
-8. Token/cost tracking
-9. Agent evaluation dataset
-10. Multi-agent specialization where justified
+2. OpenAI provider integration — **implemented**
+3. Tool execution tracing — **implemented**
+4. Live SSE observability — **implemented**
+5. Bounded retries and timeouts
+6. Human approval for high-risk actions
+7. Conversation memory
+8. RAG over support policies
+9. Token/cost tracking
+10. Agent evaluation dataset
+11. Multi-agent specialization where justified
 
 ## Design principle
 
 > **Backend owns truth. Agent owns reasoning.**
 
-The backend is the system of record and enforces business invariants. Gemini is a reasoning and orchestration component. This separation is intentional and is the core architectural decision of the project.
+The backend is the system of record and enforces business invariants. OpenAI is a reasoning and orchestration component. This separation is intentional and is the core architectural decision of the project.
