@@ -2,7 +2,9 @@ receivers:
   otlp:
     protocols:
       grpc:
+        endpoint: 0.0.0.0:4317
       http:
+        endpoint: 0.0.0.0:4318
 
 processors:
   memory_limiter:
@@ -11,10 +13,26 @@ processors:
   batch:
 
 exporters:
+  # Traces -> Splunk Observability Cloud APM.
   otlphttp/splunk:
-    endpoint: ${env:SPLUNK_OTLP_ENDPOINT}
+    traces_endpoint: ${env:SPLUNK_INGEST_URL}/v2/trace/otlp
     headers:
-      X-Sf-Token: ${env:SPLUNK_ACCESS_TOKEN}
+      X-SF-Token: ${env:SPLUNK_ACCESS_TOKEN}
+
+  # Metrics -> Splunk Observability Cloud.
+  signalfx:
+    access_token: ${env:SPLUNK_ACCESS_TOKEN}
+    api_url: ${env:SPLUNK_API_URL}
+    ingest_url: ${env:SPLUNK_INGEST_URL}
+    sync_host_metadata: false
+
+  # Logs -> Splunk Observability Cloud HEC endpoint.
+  splunk_hec/logs:
+    token: ${env:SPLUNK_ACCESS_TOKEN}
+    endpoint: ${env:SPLUNK_INGEST_URL}/v1/log
+    source: otel
+    sourcetype: otel
+    profiling_data_enabled: false
 
 service:
   pipelines:
@@ -22,11 +40,13 @@ service:
       receivers: [otlp]
       processors: [memory_limiter, batch]
       exporters: [otlphttp/splunk]
+
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlphttp/splunk]
+      exporters: [signalfx]
+
     logs:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlphttp/splunk]
+      exporters: [splunk_hec/logs]
