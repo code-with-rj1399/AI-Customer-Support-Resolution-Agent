@@ -2,86 +2,68 @@
 
 A production-oriented customer-support backend and **Agentic AI learning platform** built with Spring AI and OpenAI.
 
-The project demonstrates how to build an agent system where:
-
 > **The agent owns reasoning. The backend owns truth.**
 
-The model can understand intent, plan, delegate, retrieve knowledge, and select tools. Deterministic application code remains responsible for business rules, authorization, persistence, and financial mutations.
+The system demonstrates how an agent can understand intent, plan, delegate, retrieve knowledge, and select tools while deterministic backend code remains responsible for business rules, authorization, persistence, and financial mutations.
 
-## What this project demonstrates
+## Live Demo
 
-- Typed tool calling with Spring AI
-- Single-agent and multi-agent orchestration
-- Agent-to-agent delegation and structured task/result contracts
-- Agentic RAG with OpenAI embeddings and PGVector
-- Human-in-the-loop approval for high-risk refunds
-- Prompt-injection guardrails and deterministic tool protection
-- Live agent observability with execution traces and SSE
-- Customer-support chat UI with Single Agent vs Multi-Agent comparison
-- Real-model agent evaluations for tool selection and business outcomes
+**[Open the Agent UI](https://ai-customer-support-resolution-agent.vercel.app/)**
 
-## Documentation
+Use the UI to chat with the agent and compare **Single-Agent vs Multi-Agent** execution, including visible tool/knowledge execution traces.
 
-The root README focuses on the system as a whole. Detailed feature guides live under [`docs/`](docs/README.md).
+## What This Project Covers
 
-| Area | Guide |
-|---|---|
-| Tool Calling | [`docs/tool-calling.md`](docs/tool-calling.md) |
-| Single-Agent Orchestration | [`docs/single-agent.md`](docs/single-agent.md) |
-| Multi-Agent Architecture | [`docs/multi-agent.md`](docs/multi-agent.md) |
-| Agentic RAG / PGVector | [`docs/rag.md`](docs/rag.md) |
-| Human-in-the-Loop Approval | [`docs/human-in-the-loop.md`](docs/human-in-the-loop.md) |
-| Live Observability / SSE | [`docs/observability.md`](docs/observability.md) |
-| Agent UI | [`docs/ui.md`](docs/ui.md) |
-| Safety Boundary | [`docs/safety-boundary.md`](docs/safety-boundary.md) |
-| Guardrails / Prompt Injection | [`docs/guardrails.md`](docs/guardrails.md) |
-| Agent Evaluation | [`docs/agent-evaluation.md`](docs/agent-evaluation.md) |
+| Task / Capability | Summary | Detailed Guide |
+|---|---|---|
+| Tool Calling | Exposes typed business capabilities as Spring AI tools and keeps repository access behind backend services. | [Tool Calling](docs/tool-calling.md) |
+| Single-Agent Orchestration | Uses one agent to understand requests, select tools, retrieve context, and produce a resolution. | [Single Agent](docs/single-agent.md) |
+| Multi-Agent Architecture | Uses a supervisor with specialist agents for order investigation, resolution, and communication. | [Multi Agent](docs/multi-agent.md) |
+| Agent Orchestrator | Defines the orchestration flow and responsibility boundaries around agent execution. | [Agent Orchestrator](docs/agent-orchestrator.md) |
+| Agent Tool Contract | Defines structured contracts between agents and backend capabilities. | [Agent Tool Contract](docs/agent-tool-contract.md) |
+| Agentic RAG | Retrieves relevant policy context from PostgreSQL/PGVector using OpenAI embeddings. | [RAG](docs/rag.md) |
+| Human-in-the-Loop | Requires approval for high-risk refund operations before financial mutation. | [Human-in-the-Loop](docs/human-in-the-loop.md) |
+| Observability / SSE | Streams high-level execution events and exposes tool/knowledge timing without exposing chain-of-thought. | [Observability](docs/observability.md) |
+| Agent UI | Provides the demo chat UI and Single-Agent vs Multi-Agent architecture selector. | [UI](docs/ui.md) |
+| Safety Boundary | Keeps business truth, validation, authorization, and mutations in deterministic backend code. | [Safety Boundary](docs/safety-boundary.md) |
+| Guardrails | Blocks prompt-injection attempts and validates high-risk tool execution before mutations. | [Guardrails](docs/guardrails.md) |
+| Agent Evaluation | Evaluates observable agent behavior such as tool selection and business outcomes using real agent execution. | [Agent Evaluation](docs/agent-evaluation.md) |
 
-**Suggested learning path:** Tool Calling → Single Agent → Multi-Agent → RAG → Observability → Human-in-the-Loop → Guardrails → Evaluation.
+For the complete documentation index, see [`docs/README.md`](docs/README.md).
 
 ## Architecture
 
 ```text
-                           Customer Request
-                                  |
-                                  v
-                         +-------------------+
-                         | Input Guardrail   |
-                         | Prompt Injection  |
-                         +---------+---------+
-                                   |
-                                   v
-                         +-------------------+
-                         | Supervisor Agent  |
-                         +---------+---------+
-                                   |
-             +---------------------+---------------------+
-             |                     |                     |
-             v                     v                     v
-       Order Agent          Resolution Agent     Communication Agent
-             |                     |                     |
-       +-----+-----+               |                    OpenAI
-       |     |     |               v
-     Order Delivery Payment   +-----------+
-     Tools  Tools   Tools     | RAG Search |
-                              +-----+-----+
-                                    |
-                                    v
-                              PGVector Store
-                                    |
-                     +--------------+--------------+
-                     |       Policy Documents      |
-                     +--------------+--------------+
-                                    |
-                                    v
-                          Deterministic Backend
-                                    |
-                           Tool Guardrails
-                                    |
-                                 PostgreSQL
-                                    |
-                                    v
-                            Agent Evaluation
+Customer Request
+       |
+       v
+Input Guardrail
+       |
+       v
+Supervisor / Agent Orchestrator
+       |
+       +----------------------+----------------------+
+       |                      |                      |
+       v                      v                      v
+Order Agent            Resolution Agent      Communication Agent
+       |                      |
+       v                      v
+Order / Delivery /      RAG Knowledge Search
+Payment Tools                 |
+                              v
+                           PGVector
+                              |
+                              v
+                    Deterministic Backend Rules
+                              |
+                              v
+                       Tool Guardrails / HITL
+                              |
+                              v
+                         PostgreSQL
+                              |
+                              v
+                      Agent Evaluation
 ```
 
 ## Responsibility Boundary
@@ -102,10 +84,10 @@ The root README focuses on the system as a whole. Detailed feature guides live u
 - Payment and delivery state
 - Idempotency
 - Financial mutations
-- Persistence of refunds and support tickets
+- Persistence
 - Security and authorization guardrails
 
-RAG is context, not authority. Retrieved policy content can inform the agent, but deterministic Java services decide whether a state-changing action is actually allowed.
+**RAG is context, not authority.** Retrieved policy content can inform the agent, but deterministic Java services decide whether a state-changing action is allowed.
 
 ## Single Agent vs Multi-Agent
 
@@ -128,33 +110,14 @@ Supervisor
 
 ### Endpoints
 
-Single agent:
-
 ```http
 POST /api/agent/resolve
-```
-
-Multi-agent:
-
-```http
 POST /api/multi-agent/resolve
 ```
 
 ## Tool Calling
 
-Business capabilities are exposed as typed Spring AI tools. Examples include:
-
-| Tool | Purpose |
-|---|---|
-| `getCustomer` | Retrieve customer facts |
-| `getOrder` | Retrieve order state |
-| `getDeliveryStatus` | Determine delivery status and delay |
-| `getPayment` | Verify payment state and amount |
-| `searchKnowledgeBase` | Retrieve relevant policy context |
-| `checkRefundPolicy` | Get authoritative refund eligibility |
-| `requestRefund` | Request a controlled refund through policy/HITL checks |
-| `createRefund` | Controlled backend refund execution |
-| `getSupportTicket` | Retrieve an existing support ticket |
+Business capabilities are exposed as typed Spring AI tools, including customer, order, delivery, payment, knowledge, refund, and support-ticket operations.
 
 The agent never gets direct JPA repository access.
 
@@ -168,40 +131,7 @@ src/main/resources/knowledge/
 └── refund-policy.md
 ```
 
-At startup, documents are chunked, embedded with `text-embedding-3-small`, and stored in PostgreSQL/PGVector.
-
-```text
-Policy Markdown
-      |
-      v
-Spring AI Document
-      |
-      v
-TokenTextSplitter
-      |
-      v
-OpenAI Embeddings
-      |
-      v
-PostgreSQL / PGVector
-```
-
-At runtime:
-
-```text
-Resolution Agent
-      |
-      +--> searchKnowledgeBase(query)
-                 |
-                 v
-              PGVector
-                 |
-                 v
-          Relevant policy chunks
-                 |
-                 v
-          Grounded resolution
-```
+Policy documents are chunked, embedded with `text-embedding-3-small`, and stored in PostgreSQL/PGVector. At runtime, the resolution flow retrieves relevant policy chunks before producing a grounded response.
 
 ## Safety and Guardrails
 
@@ -211,15 +141,15 @@ The system uses defense in depth:
 Customer input
       |
       v
-PromptInjectionGuardrail
+Prompt Injection Guardrail
       |
       v
-     LLM
+LLM
       |
-      +---- RAG / Tool results treated as UNTRUSTED DATA
+      +---- RAG / Tool results treated as untrusted data
       |
       v
-ToolExecutionGuardrail
+Tool Execution Guardrail
       |
       v
 Backend policy + authorization
@@ -230,15 +160,13 @@ Backend policy + authorization
 Financial mutation
 ```
 
-`PromptInjectionGuardrail` validates input before model invocation. High-risk tool calls are validated again by deterministic backend code.
-
-Refund operations must go through `requestRefund()`. `createRefund()` cannot be used to bypass policy, idempotency, or human approval requirements.
+Refund operations must go through the controlled refund workflow. Backend validation, policy checks, idempotency, and human approval cannot be bypassed by model output or user instructions.
 
 ## Live Observability
 
-Execution tracing gives operational visibility into the model/tool workflow without exposing hidden reasoning or chain-of-thought.
+The execution trace exposes operational events without exposing hidden reasoning or chain-of-thought.
 
-Events include:
+Examples include:
 
 ```text
 AGENT_STARTED
@@ -254,15 +182,15 @@ AGENT_COMPLETED
 AGENT_ERROR
 ```
 
-The UI can display trace events and durations, while SSE streams live execution events. The same trace infrastructure is used by agent evaluations.
+The UI can display trace events and durations while SSE streams live execution events.
 
 ## Agent Evaluation
 
-Agent evaluation is documented separately so the root README stays focused on architecture and usage.
+The evaluation system measures observable agent behavior using the real Spring AI agent and captured execution traces.
 
-The evaluation system measures observable behavior such as tool selection and business outcomes using the real Spring AI agent and captured execution traces.
+Current evaluation areas include **tool selection** and **business/task outcomes**. Additional metrics such as tool sequencing, policy compliance, answer quality, retrieval quality, latency, token usage, and estimated cost are planned.
 
-Read the full guide: [`docs/agent-evaluation.md`](docs/agent-evaluation.md).
+See [`docs/agent-evaluation.md`](docs/agent-evaluation.md) for the evaluation design.
 
 ## Business Rules
 
@@ -293,9 +221,9 @@ OpenAI, RAG, and user-provided instructions cannot override these rules.
 - OpenAI `text-embedding-3-small`
 - JUnit 5 real-agent evaluations
 
-## OpenAI Configuration
+## Run Locally
 
-Create a local `.env` file:
+Create a local `.env` file from the example and provide your OpenAI API key:
 
 ```env
 OPENAI_API_KEY=your-openai-api-key
@@ -307,17 +235,7 @@ RAG_TOP_K=4
 RAG_SIMILARITY_THRESHOLD=0.60
 ```
 
-`.env` must never be committed.
-
-## Run Locally
-
-The local stack uses PGVector-enabled PostgreSQL:
-
-```text
-pgvector/pgvector:pg17
-```
-
-Start the application:
+Then start the stack:
 
 ```bash
 docker compose up --build
@@ -342,59 +260,12 @@ curl -X POST http://localhost:8080/api/multi-agent/resolve \
   }'
 ```
 
-## Project Roadmap
+## Learning Path
 
-### Implemented
+Start with the core mechanics and then move into production concerns:
 
-- Tool calling
-- Single-agent orchestration
-- Multi-agent delegation
-- Agent-to-agent task/result contracts
-- PostgreSQL-backed business tools
-- OpenAI integration
-- Agentic RAG
-- Embeddings + PGVector
-- Policy document ingestion
-- Live execution tracing
-- SSE observability
-- Single vs Multi-Agent UI
-- Human-in-the-loop refund approval
-- Guardrails and prompt-injection defense
-- Real-agent tool selection evaluation
-- Real-agent outcome / task success evaluation
+**Tool Calling → Single Agent → Multi-Agent → RAG → Observability → Human-in-the-Loop → Guardrails → Agent Evaluation**
 
-### Next evaluation metrics
+## Documentation
 
-- Tool sequencing
-- Policy compliance
-- Answer quality / LLM-as-a-judge
-- RAG retrieval quality
-- Latency (P50/P95)
-- Token usage and estimated cost
-
-### Future platform work
-
-- Agent memory
-- Retry, timeout, and circuit-breaker strategies
-- MCP
-- Cost and latency optimization
-- LangChain4j implementation for framework comparison
-
-## Documentation Map
-
-```text
-docs/
-├── README.md                 # Feature documentation index
-├── tool-calling.md           # Tool calling
-├── single-agent.md           # Single-agent orchestration
-├── multi-agent.md            # Supervisor + specialist agents
-├── rag.md                    # Agentic RAG + PGVector
-├── human-in-the-loop.md      # Approval workflow
-├── observability.md          # Trace events + SSE
-├── ui.md                     # Demo UI and architecture selector
-├── safety-boundary.md        # Deterministic backend safety model
-├── guardrails.md             # Prompt-injection defense
-└── agent-evaluation.md       # Agent evaluation strategy and metrics
-```
-
-Start with [`docs/README.md`](docs/README.md) for the detailed feature documentation.
+See [`docs/README.md`](docs/README.md) for the complete feature map and links to every task-specific guide.
