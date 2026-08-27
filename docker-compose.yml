@@ -16,12 +16,28 @@ services:
       timeout: 5s
       retries: 10
 
+  splunk-otel-collector:
+    image: quay.io/signalfx/splunk-otel-collector:latest
+    container_name: splunk-otel-collector
+    environment:
+      SPLUNK_ACCESS_TOKEN: ${SPLUNK_ACCESS_TOKEN:-}
+      SPLUNK_REALM: ${SPLUNK_REALM:-}
+      SPLUNK_OTLP_ENDPOINT: ${SPLUNK_OTLP_ENDPOINT:-https://ingest.${SPLUNK_REALM:-}.signalfx.com/v1}
+    command: ["--config=/etc/otel/collector.yaml"]
+    volumes:
+      - ./observability/splunk-otel-collector-config.yaml:/etc/otel/collector.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+
   app:
     build: .
     container_name: customer-support-api
     depends_on:
       postgres:
         condition: service_healthy
+      splunk-otel-collector:
+        condition: service_started
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/customer_support
       DB_USERNAME: customer_support
@@ -34,6 +50,10 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPEN_AI_MODEL: ${OPEN_AI_MODEL:-gpt-5-mini}
       OPEN_AI_EMBEDDING_MODEL: ${OPEN_AI_EMBEDDING_MODEL:-text-embedding-3-small}
+      OTEL_SERVICE_NAME: spring-ai-agent
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment=dev
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://splunk-otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
     ports:
       - "8080:8080"
 
