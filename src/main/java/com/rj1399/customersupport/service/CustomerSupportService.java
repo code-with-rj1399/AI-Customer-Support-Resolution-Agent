@@ -15,7 +15,7 @@ import java.util.UUID;
 @Service
 public class CustomerSupportService {
     public static final int REFUND_MINIMUM_DELAY_DAYS = 3;
-    public static final BigDecimal MAX_AUTOMATIC_REFUND = new BigDecimal("5000.00");
+    public static final BigDecimal MAX_AUTOMATIC_REFUND = new BigDecimal("2000.00");
     private final CustomerRepository customerRepository;
     private final OrderRepository orderRepository;
     private final PaymentRepository paymentRepository;
