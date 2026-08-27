@@ -13,6 +13,7 @@ This directory contains focused documentation for the major Agentic AI concepts 
 | Observability / SSE | [Observability](observability.md) |
 | UI Architecture Selector | [UI](ui.md) |
 | Business Safety Boundary | [Safety Boundary](safety-boundary.md) |
+| Agent Evaluation | [Evaluation roadmap](../evals/README.md) |
 
 ## Suggested learning order
 
@@ -21,6 +22,7 @@ This directory contains focused documentation for the major Agentic AI concepts 
 3. Multi-Agent Delegation
 4. RAG / Grounded Generation
 5. Observability
-6. Human-in-the-Loop (next)
-7. Memory (next)
-8. Guardrails and Evaluation (next)
+6. Human-in-the-Loop
+7. Guardrails
+8. Agent Evaluation
+9. Memory
