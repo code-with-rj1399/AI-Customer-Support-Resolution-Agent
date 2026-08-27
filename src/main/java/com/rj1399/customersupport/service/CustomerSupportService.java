@@ -8,7 +8,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Clock;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
@@ -47,8 +46,7 @@ public class CustomerSupportService {
 
     @Transactional(readOnly = true)
     public ApiDtos.OrderResponse getOrder(String orderNumber) {
-        Order o = findOrder(orderNumber);
-        return toOrderResponse(o);
+        return toOrderResponse(findOrder(orderNumber));
     }
 
     @Transactional(readOnly = true)
@@ -84,6 +82,15 @@ public class CustomerSupportService {
 
     @Transactional
     public ApiDtos.RefundResponse createRefund(ApiDtos.RefundRequest request) {
+        return createRefundInternal(request, false);
+    }
+
+    @Transactional
+    public ApiDtos.RefundResponse createApprovedRefund(ApiDtos.RefundRequest request) {
+        return createRefundInternal(request, true);
+    }
+
+    private ApiDtos.RefundResponse createRefundInternal(ApiDtos.RefundRequest request, boolean humanApproved) {
         Refund existing = refundRepository.findByIdempotencyKey(request.idempotencyKey()).orElse(null);
         if (existing != null) return toRefundResponse(existing);
 
@@ -94,13 +101,13 @@ public class CustomerSupportService {
         long delay = daysLate(order);
         if (delay < REFUND_MINIMUM_DELAY_DAYS) {
             throw new BusinessRuleException("REFUND_NOT_ELIGIBLE",
-                    "Order " + order.getOrderNumber() + " is only " + delay + " day(s) late; policy requires "
-                            + REFUND_MINIMUM_DELAY_DAYS + " days.");
+                    "Order " + order.getOrderNumber() + " is only " + delay
+                            + " day(s) late; policy requires " + REFUND_MINIMUM_DELAY_DAYS + " days.");
         }
         if (payment.getStatus() != Payment.Status.CAPTURED) {
             throw new BusinessRuleException("REFUND_NOT_ELIGIBLE", "Payment is not in CAPTURED state.");
         }
-        if (order.getTotalAmount().compareTo(MAX_AUTOMATIC_REFUND) > 0) {
+        if (!humanApproved && order.getTotalAmount().compareTo(MAX_AUTOMATIC_REFUND) > 0) {
             throw new BusinessRuleException("HUMAN_APPROVAL_REQUIRED",
                     "Refund exceeds the automatic refund limit of " + MAX_AUTOMATIC_REFUND + ".");
         }
