@@ -29,7 +29,7 @@ exporters:
   # Logs -> Splunk Observability Cloud HEC endpoint.
   splunk_hec/logs:
     token: ${env:SPLUNK_ACCESS_TOKEN}
-    endpoint: ${env:SPLUNK_INGEST_URL}/v1/log
+    endpoint: ${env:SPLUNK_HEC_URL}
     source: otel
     sourcetype: otel
     profiling_data_enabled: false
