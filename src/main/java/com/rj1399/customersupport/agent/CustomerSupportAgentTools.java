@@ -110,6 +110,11 @@ public class CustomerSupportAgentTools {
         return new RefundActionResult("COMPLETED", orderNumber, "Refund created successfully.", null, refund.amount());
     }
 
+    @Tool(description = "Get status of human approval by id.")
+    public HumanApprovalService.Approval getTheStatusOfHumanApproval(String id){
+        return humanApprovalService.get(UUID.fromString(id)).;
+    }
+
     /** Internal-only state-changing operation. It intentionally has no @Tool annotation. */
     public ApiDtos.RefundResponse executeRefund(String orderNumber, String reason, String idempotencyKey) {
         GuardrailResult guardrail = validateHighRisk("createRefund", orderNumber, reason);
