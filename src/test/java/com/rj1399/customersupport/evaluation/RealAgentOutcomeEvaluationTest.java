@@ -6,6 +6,7 @@ import com.rj1399.customersupport.agent.AgentTraceStore;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.TestPropertySource;
@@ -25,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @Tag("agent-evaluation")
 @SpringBootTest
 @TestPropertySource(properties = "agent.enabled=true")
+@EnabledIfEnvironmentVariable(named = "OPENAI_API_KEY", matches = ".+")
 class RealAgentOutcomeEvaluationTest {
 
     @Autowired
