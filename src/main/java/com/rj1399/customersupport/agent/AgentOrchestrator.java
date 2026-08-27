@@ -1,4 +1,78 @@
 package com.rj1399.customersupport.agent;
 
-import org.slf4j.Logger;import org.slf4j.LoggerFactory;import org.springframework.ai.chat.client.ChatClient;import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;import org.springframework.stereotype.Service;import java.time.Instant;import java.util.Map;import java.util.concurrent.*;
-@Service @ConditionalOnProperty(prefix="agent",name="enabled",havingValue="true") public class AgentOrchestrator {private static final Logger log=LoggerFactory.getLogger(AgentOrchestrator.class);private static final ScheduledExecutorService WAITING_LOGGER=Executors.newScheduledThreadPool(1,r->{Thread t=new Thread(r,"agent-model-waiting");t.setDaemon(true);return t;});private static final String SYSTEM_PROMPT="""You are the Customer Support Supervisor Agent. Use backend tools whenever the answer depends on state. For every new refund request, investigate the order, delivery, payment and refund policy, then call requestRefund instead of createRefund. If requestRefund returns PENDING_HUMAN_APPROVAL, do not claim the refund is complete; tell the customer it is waiting for human approval and include the approval ID. If the customer asks about a previous human approval, use getHumanApprovalStats with the approval ID and report the returned status. Never bypass backend business rules or human approval. Keep responses concise and customer-friendly.""";private final ChatClient chatClient;private final CustomerSupportAgentTools tools;private final AgentTraceStore traceStore;public AgentOrchestrator(ChatClient.Builder b,CustomerSupportAgentTools t,AgentTraceStore s){chatClient=b.build();tools=t;traceStore=s;}public AgentResult resolve(String m){return resolve(m,traceStore.start());}public AgentResult resolve(String m,String id){long started=System.nanoTime();CustomerSupportAgentTools.bindExecution(id);try{String response=chatClient.prompt().system(SYSTEM_PROMPT).user(m).tools(tools).call().content();return new AgentResult(id,response==null?"":response);}finally{CustomerSupportAgentTools.clearExecution();traceStore.complete(id);}}public record AgentResult(String executionId,String response){}}
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Service;
+
+@Service
+@ConditionalOnProperty(prefix = "agent", name = "enabled", havingValue = "true")
+public class AgentOrchestrator {
+
+    private static final String SYSTEM_PROMPT = """
+            You are the Customer Support Supervisor Agent.
+
+            Use backend tools whenever the answer depends on system state.
+
+            For every new refund request:
+            1. Investigate the order.
+            2. Check delivery status.
+            3. Check payment status.
+            4. Check refund eligibility.
+            5. Call requestRefund instead of createRefund.
+
+            If requestRefund returns PENDING_HUMAN_APPROVAL:
+            - Do not claim that the refund is complete.
+            - Tell the customer that the refund is waiting for human approval.
+            - Include the approval ID in the response.
+
+            If the customer asks about a previous human approval, use
+            getHumanApprovalStats with the approval ID and report the
+            current status.
+
+            Never bypass backend business rules or human approval.
+            Keep responses concise and customer-friendly.
+            """;
+
+    private final ChatClient chatClient;
+    private final CustomerSupportAgentTools tools;
+    private final AgentTraceStore traceStore;
+
+    public AgentOrchestrator(
+            ChatClient.Builder chatClientBuilder,
+            CustomerSupportAgentTools tools,
+            AgentTraceStore traceStore) {
+        this.chatClient = chatClientBuilder.build();
+        this.tools = tools;
+        this.traceStore = traceStore;
+    }
+
+    public AgentResult resolve(String message) {
+        return resolve(message, traceStore.start());
+    }
+
+    public AgentResult resolve(String message, String executionId) {
+        CustomerSupportAgentTools.bindExecution(executionId);
+
+        try {
+            String response = chatClient.prompt()
+                    .system(SYSTEM_PROMPT)
+                    .user(message)
+                    .tools(tools)
+                    .call()
+                    .content();
+
+            return new AgentResult(
+                    executionId,
+                    response == null ? "" : response
+            );
+        } finally {
+            CustomerSupportAgentTools.clearExecution();
+            traceStore.complete(executionId);
+        }
+    }
+
+    public record AgentResult(
+            String executionId,
+            String response) {
+    }
+}
