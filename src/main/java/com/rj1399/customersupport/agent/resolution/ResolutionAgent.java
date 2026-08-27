@@ -11,6 +11,7 @@ import java.util.Map;
 
 @Component
 public class ResolutionAgent implements SupportAgent {
+
     private final CustomerSupportAgentTools tools;
 
     public ResolutionAgent(CustomerSupportAgentTools tools) {
@@ -18,12 +19,37 @@ public class ResolutionAgent implements SupportAgent {
     }
 
     @Override
-    public String name() { return "resolution-agent"; }
+    public String name() {
+        return "resolution-agent";
+    }
 
     @Override
     public AgentResult execute(AgentTask task) {
-        String orderNumber = String.valueOf(task.context().get("orderNumber"));
+        String intent = String.valueOf(task.context().getOrDefault("intent", "REFUND"));
+        String approvalId = task.context().get("approvalId") == null ? null : String.valueOf(task.context().get("approvalId"));
+
+        if ("APPROVAL_STATUS".equals(intent)) {
+            if (approvalId == null || approvalId.isBlank()) {
+                return new AgentResult(
+                        task.executionId(), task.taskId(), name(), "NEEDS_INPUT",
+                        Map.of("message", "Please provide the human approval ID so I can check its status."));
+            }
+
+            var approval = tools.getHumanApprovalStats(approvalId);
+            return new AgentResult(
+                    task.executionId(), task.taskId(), name(), "COMPLETED",
+                    Map.of("approval", approval));
+        }
+
+        String orderNumber = task.context().get("orderNumber") == null ? null : String.valueOf(task.context().get("orderNumber"));
         String reason = String.valueOf(task.context().getOrDefault("reason", "Customer requested resolution"));
+
+        if (orderNumber == null || orderNumber.isBlank()) {
+            return new AgentResult(
+                    task.executionId(), task.taskId(), name(), "NEEDS_INPUT",
+                    Map.of("message", "Please provide the order number so I can process the refund request."));
+        }
+
         String idempotencyKey = "refund-" + task.executionId() + "-" + orderNumber;
 
         var knowledge = tools.searchKnowledgeBase(reason + " refund eligibility order " + orderNumber);
@@ -34,16 +60,14 @@ public class ResolutionAgent implements SupportAgent {
         result.put("policy", policy);
         result.put("payment", payment);
         result.put("knowledgeSources", knowledge.matches().stream().map(match -> Map.of(
-                "source", match.source(), "score", match.score() == null ? 0.0 : match.score())).toList());
+                "source", match.source(),
+                "score", match.score() == null ? 0.0 : match.score())).toList());
         result.put("knowledgeContext", knowledge.context());
 
         if (!policy.eligible()) {
             return new AgentResult(task.executionId(), task.taskId(), name(), "REJECTED", result);
         }
 
-        // Always go through the guarded refund entry point. It performs the
-        // final payment validation, amount check and HITL routing. The agent
-        // must never bypass that workflow by calling createRefund directly.
         var refund = tools.requestRefund(orderNumber, reason, idempotencyKey);
         result.put("refund", refund);
 
