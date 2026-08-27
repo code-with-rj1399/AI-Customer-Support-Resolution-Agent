@@ -17,9 +17,6 @@ public class HumanApprovalController {
     @GetMapping("/pending")
     public List<HumanApprovalService.Approval> pending() { return service.pending(); }
 
-    @GetMapping("/{id}")
-    public HumanApprovalService.Approval get(@PathVariable UUID id) { return service.get(id); }
-
     @PostMapping("/{id}/approve")
     public HumanApprovalService.Approval approve(@PathVariable UUID id, @Valid @RequestBody DecisionRequest request) {
         return service.approve(id, request.decidedBy(), request.reason());
