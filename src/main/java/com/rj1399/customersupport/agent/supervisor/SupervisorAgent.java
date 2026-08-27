@@ -1,57 +1,72 @@
 package com.rj1399.customersupport.agent.supervisor;
 
-import com.rj1399.customersupport.agent.communication.CommunicationAgent;
+import com.rj1399.customersupport.agent.CustomerSupportAgentTools;
 import com.rj1399.customersupport.agent.core.AgentResult;
 import com.rj1399.customersupport.agent.core.AgentTask;
 import com.rj1399.customersupport.agent.core.SupportAgent;
-import com.rj1399.customersupport.agent.order.OrderInvestigationAgent;
-import com.rj1399.customersupport.agent.resolution.ResolutionAgent;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
-import java.util.UUID;
 
 @Component
 public class SupervisorAgent implements SupportAgent {
-    private final OrderInvestigationAgent orderAgent;
-    private final ResolutionAgent resolutionAgent;
-    private final CommunicationAgent communicationAgent;
 
-    public SupervisorAgent(OrderInvestigationAgent orderAgent, ResolutionAgent resolutionAgent,
-                           CommunicationAgent communicationAgent) {
-        this.orderAgent = orderAgent;
-        this.resolutionAgent = resolutionAgent;
-        this.communicationAgent = communicationAgent;
+    private static final String SYSTEM_PROMPT = """
+            You are the supervisor for a multi-agent customer support system.
+
+            The customer message is the source of the request. Do not use Java-side
+            parsing, regex extraction, keyword routing, or assumptions about IDs.
+            Interpret the message yourself and decide which available tools are needed.
+
+            Rules:
+            1. Whenever information depends on backend state, use the appropriate tool.
+            2. For a refund request, investigate the relevant order, delivery status,
+               payment status, and refund policy before calling requestRefund.
+            3. For human approval status requests, use getHumanApprovalStats with the
+               approval ID provided by the customer.
+            4. If requestRefund returns PENDING_HUMAN_APPROVAL, do not claim that the
+               refund is complete. Clearly state that human approval is pending and
+               include the approval ID.
+            5. Never call createRefund directly to bypass the guarded refund workflow.
+            6. Backend tools are authoritative. Never invent order, payment, refund,
+               approval, or policy data.
+            7. If the customer has not supplied the identifier required by a tool,
+               ask for that identifier instead of guessing.
+            8. Return a concise, customer-friendly answer.
+            """;
+
+    private final ChatClient chatClient;
+    private final CustomerSupportAgentTools tools;
+
+    public SupervisorAgent(ChatClient.Builder chatClientBuilder,
+                           CustomerSupportAgentTools tools) {
+        this.chatClient = chatClientBuilder.build();
+        this.tools = tools;
     }
 
     @Override
-    public String name() { return "supervisor-agent"; }
+    public String name() {
+        return "supervisor-agent";
+    }
 
     @Override
     public AgentResult execute(AgentTask task) {
-        String orderNumber = extractOrderNumber(String.valueOf(task.context().get("message")));
-        if (orderNumber == null) {
-            return new AgentResult(task.executionId(), task.taskId(), name(), "NEEDS_INFORMATION",
-                    Map.of("message", "Please provide an order number so I can investigate the request."));
-        }
-
-        AgentResult investigation = orderAgent.execute(new AgentTask(task.executionId(), UUID.randomUUID().toString(),
-                "ORDER_INVESTIGATION", Map.of("orderNumber", orderNumber)));
-
         String message = String.valueOf(task.context().get("message"));
-        AgentResult resolution = resolutionAgent.execute(new AgentTask(task.executionId(), UUID.randomUUID().toString(),
-                "RESOLUTION", Map.of("orderNumber", orderNumber, "reason", message)));
 
-        AgentResult communication = communicationAgent.execute(new AgentTask(task.executionId(), UUID.randomUUID().toString(),
-                "COMMUNICATION", Map.of("resolution", resolution.result(), "investigation", investigation.result())));
+        String response = chatClient.prompt()
+                .system(SYSTEM_PROMPT)
+                .user(message)
+                .tools(tools)
+                .call()
+                .content();
 
-        return new AgentResult(task.executionId(), task.taskId(), name(), "COMPLETED",
-                Map.of("investigation", investigation.result(), "resolution", resolution.result(),
-                        "response", communication.result().get("message")));
-    }
-
-    private String extractOrderNumber(String message) {
-        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\b(?:order\\s*)?(\\d{4,})\\b", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(message);
-        return matcher.find() ? matcher.group(1) : null;
+        return new AgentResult(
+                task.executionId(),
+                task.taskId(),
+                name(),
+                "COMPLETED",
+                Map.of("response", response == null ? "" : response)
+        );
     }
 }
