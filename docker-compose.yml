@@ -22,8 +22,9 @@ services:
     environment:
       SPLUNK_ACCESS_TOKEN: ${SPLUNK_ACCESS_TOKEN:-}
       SPLUNK_REALM: ${SPLUNK_REALM:-au0}
-      SPLUNK_API_URL: https://api.${SPLUNK_REALM:-au0}.signalfx.com
-      SPLUNK_INGEST_URL: https://ingest.${SPLUNK_REALM:-au0}.signalfx.com
+      SPLUNK_API_URL: https://api.${SPLUNK_REALM:-au0}.observability.splunkcloud.com
+      SPLUNK_INGEST_URL: https://ingest.${SPLUNK_REALM:-au0}.observability.splunkcloud.com
+      SPLUNK_HEC_URL: https://ingest.${SPLUNK_REALM:-au0}.observability.splunkcloud.com/v1/log
     command: ["--config=/etc/otel/collector.yaml"]
     volumes:
       - ./observability/splunk-otel-collector-config.yaml:/etc/otel/collector.yaml:ro
