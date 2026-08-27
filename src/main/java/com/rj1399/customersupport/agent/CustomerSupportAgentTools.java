@@ -112,7 +112,7 @@ public class CustomerSupportAgentTools {
 
     @Tool(description = "Get status of human approval by id.")
     public HumanApprovalService.Approval getTheStatusOfHumanApproval(String id){
-        return humanApprovalService.get(UUID.fromString(id)).;
+        return humanApprovalService.get(UUID.fromString(id));
     }
 
     /** Internal-only state-changing operation. It intentionally has no @Tool annotation. */
