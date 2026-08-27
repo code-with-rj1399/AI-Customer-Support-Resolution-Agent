@@ -2,7 +2,7 @@
 
 This directory contains focused documentation for the major Agentic AI concepts implemented in the project.
 
-## Feature guides
+## Feature Guides
 
 | Feature | Documentation |
 |---|---|
@@ -13,9 +13,10 @@ This directory contains focused documentation for the major Agentic AI concepts 
 | Observability / SSE | [Observability](observability.md) |
 | UI Architecture Selector | [UI](ui.md) |
 | Business Safety Boundary | [Safety Boundary](safety-boundary.md) |
-| Agent Evaluation | [Evaluation roadmap](../evals/README.md) |
+| Guardrails / Prompt Injection | [Guardrails](guardrails.md) |
+| Agent Evaluation | [Agent Evaluation](agent-evaluation.md) |
 
-## Suggested learning order
+## Suggested Learning Order
 
 1. Tool Calling
 2. Single-Agent Orchestration
