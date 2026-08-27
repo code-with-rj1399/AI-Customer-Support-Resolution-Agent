@@ -30,6 +30,7 @@ The root README focuses on the system as a whole. Detailed feature guides live u
 | Single-Agent Orchestration | [`docs/single-agent.md`](docs/single-agent.md) |
 | Multi-Agent Architecture | [`docs/multi-agent.md`](docs/multi-agent.md) |
 | Agentic RAG / PGVector | [`docs/rag.md`](docs/rag.md) |
+| Human-in-the-Loop Approval | [`docs/human-in-the-loop.md`](docs/human-in-the-loop.md) |
 | Live Observability / SSE | [`docs/observability.md`](docs/observability.md) |
 | Agent UI | [`docs/ui.md`](docs/ui.md) |
 | Safety Boundary | [`docs/safety-boundary.md`](docs/safety-boundary.md) |
@@ -159,15 +160,12 @@ The agent never gets direct JPA repository access.
 
 ## Agentic RAG
 
-Policy knowledge is stored as Markdown files under:
+The current policy knowledge directory contains:
 
 ```text
 src/main/resources/knowledge/
-├── refund-policy.md
-├── shipping-policy.md
-├── cancellation-policy.md
 ├── payment-policy.md
-└── damaged-item-policy.md
+└── refund-policy.md
 ```
 
 At startup, documents are chunked, embedded with `text-embedding-3-small`, and stored in PostgreSQL/PGVector.
@@ -391,6 +389,7 @@ docs/
 ├── single-agent.md           # Single-agent orchestration
 ├── multi-agent.md            # Supervisor + specialist agents
 ├── rag.md                    # Agentic RAG + PGVector
+├── human-in-the-loop.md      # Approval workflow
 ├── observability.md          # Trace events + SSE
 ├── ui.md                     # Demo UI and architecture selector
 ├── safety-boundary.md        # Deterministic backend safety model
