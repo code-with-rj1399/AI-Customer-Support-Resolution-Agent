@@ -111,7 +111,7 @@ public class CustomerSupportAgentTools {
     }
 
     @Tool(description = "Get status of human approval by id.")
-    public HumanApprovalService.Approval getTheStatusOfHumanApproval(String id){
+    public HumanApprovalService.Approval getHumanApprovalStats(String id){
         return humanApprovalService.get(UUID.fromString(id));
     }
 

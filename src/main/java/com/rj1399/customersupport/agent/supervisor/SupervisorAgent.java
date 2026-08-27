@@ -69,6 +69,8 @@ public class SupervisorAgent implements SupportAgent {
         String message = String.valueOf(task.context().get("message"));
         Plan plan = createPlan(message);
 
+        System.out.println(plan.toString());
+
         Map<String, Object> context = new LinkedHashMap<>();
         context.put("customerMessage", message);
         context.put("plan", plan);
