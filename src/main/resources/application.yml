@@ -20,11 +20,24 @@ spring:
     openai:
       api-key: ${OPENAI_API_KEY:}
       chat:
-        options:
-          model: ${OPEN_AI_MODEL:gpt-5-mini}
+        model: ${OPEN_AI_MODEL:gpt-5-mini}
+      embedding:
+        model: ${OPEN_AI_EMBEDDING_MODEL:text-embedding-3-small}
+    vectorstore:
+      pgvector:
+        initialize-schema: true
+        dimensions: 1536
+        index-type: HNSW
+        distance-type: COSINE_DISTANCE
+        max-document-batch-size: 100
 
 agent:
   enabled: ${AGENT_ENABLED:false}
+
+rag:
+  enabled: ${RAG_ENABLED:true}
+  top-k: ${RAG_TOP_K:4}
+  similarity-threshold: ${RAG_SIMILARITY_THRESHOLD:0.60}
 
 server:
   port: ${SERVER_PORT:8080}

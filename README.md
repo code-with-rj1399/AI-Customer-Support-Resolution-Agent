@@ -1,8 +1,29 @@
 # AI Customer Support Resolution Agent
 
-A production-oriented customer-support backend and Agentic AI orchestration platform. The system uses **OpenAI through Spring AI** for reasoning and tool selection, while the backend remains the source of truth for customer, order, payment, delivery, refund, and ticket state.
+A production-oriented customer-support backend and **Agentic AI learning platform** built around OpenAI, Spring AI, typed tools, multi-agent orchestration, RAG, PGVector, and live observability.
 
-> **Current status:** The `dev` branch contains the deterministic backend, Supervisor Agent, OpenAI integration, typed business tools, and live execution observability. The agent is intentionally thin: OpenAI reasons about the request and selects tools; deterministic Java services enforce business rules and execute state changes.
+The central architectural principle is:
+
+> **The agent owns reasoning. The backend owns truth.**
+
+The LLM can understand intent, plan, delegate, retrieve knowledge, and select tools. It does **not** directly access repositories or bypass deterministic business rules.
+
+## 📚 Feature documentation
+
+The README gives the high-level architecture. Each major concept has a focused guide under [`docs/`](docs/README.md):
+
+| Concept | Guide |
+|---|---|
+| Tool Calling | [`docs/tool-calling.md`](docs/tool-calling.md) |
+| Single-Agent Orchestration | [`docs/single-agent.md`](docs/single-agent.md) |
+| Multi-Agent Architecture | [`docs/multi-agent.md`](docs/multi-agent.md) |
+| Agentic RAG / PGVector | [`docs/rag.md`](docs/rag.md) |
+| Live Observability / SSE | [`docs/observability.md`](docs/observability.md) |
+| Agent UI | [`docs/ui.md`](docs/ui.md) |
+| Safety Boundary | [`docs/safety-boundary.md`](docs/safety-boundary.md) |
+| Guardrails / Prompt Injection | [`docs/guardrails.md`](docs/guardrails.md) |
+
+**Recommended learning path:** Tool Calling → Single Agent → Multi-Agent → RAG → Observability → Human-in-the-Loop → Memory → Guardrails → Evaluation.
 
 ## Technology baseline
 
@@ -10,191 +31,244 @@ A production-oriented customer-support backend and Agentic AI orchestration plat
 - Spring Boot 4.1.1
 - Spring MVC
 - Spring Data JPA / Hibernate
-- PostgreSQL 17
+- PostgreSQL 17 + PGVector
 - Flyway
 - Spring Boot Actuator
 - Maven
 - Docker / Docker Compose
 - Spring AI 2.0.1
-- OpenAI via `spring-ai-starter-model-openai`
+- OpenAI chat models
+- OpenAI `text-embedding-3-small`
 
 ## Architecture
 
 ```text
-                         Customer Request
-                                |
-                                v
-                  +---------------------------+
-                  |    Supervisor Agent       |
-                  |  Spring AI + OpenAI       |
-                  +-------------+-------------+
-                                |
-                         Tool selection
-                                |
-          +---------------------+----------------------+
-          |          |           |          |          |
-          v          v           v          v          v
-      Customer     Order     Delivery   Payment    Refund Policy
-        Tool       Tool        Tool       Tool         Tool
-          |          |           |          |          |
-          +----------+-----------+----------+----------+
-                                |
-                                v
-                         Refund / Ticket Tool
-                                |
-                                v
-                  +---------------------------+
-                  | Deterministic Backend     |
-                  | CustomerSupportService    |
-                  +-------------+-------------+
-                                |
-                                v
-                           PostgreSQL
+                           Customer Request
+                                  |
+                                  v
+                         +-------------------+
+                         | Input Guardrail   |
+                         | Prompt Injection  |
+                         +---------+---------+
+                                   |
+                                   v
+                         +-------------------+
+                         | Supervisor Agent  |
+                         +---------+---------+
+                                   |
+             +---------------------+---------------------+
+             |                     |                     |
+             v                     v                     v
+       Order Agent          Resolution Agent     Communication Agent
+             |                     |                     |
+       +-----+-----+               |                    OpenAI
+       |     |     |               v
+     Order Delivery Payment   +-----------+
+     Tools  Tools   Tools     | RAG Search |
+                              +-----+-----+
+                                    |
+                                    v
+                              PGVector Store
+                                    |
+                     +--------------+--------------+
+                     |       Policy Documents      |
+                     +--------------+--------------+
+                                    |
+                                    v
+                          Deterministic Backend
+                                    |
+                           Tool Guardrails
+                                    |
+                                 PostgreSQL
 ```
 
-### Responsibility boundary
+## Guardrails and prompt-injection defense
 
-**Agent layer owns:**
-
-- Understanding the customer's request
-- Reasoning and planning
-- Deciding which tools are required
-- Sequencing tool calls
-- Producing the final customer-facing response
-- Deciding when more information is required
-
-**Backend owns:**
-
-- Database state
-- Business rules
-- Validation
-- Idempotency
-- Refund eligibility
-- Payment and delivery state
-- Persisting refunds and support tickets
-
-The LLM is **not** trusted to implement business policy. It must call deterministic backend tools to obtain facts and perform controlled actions.
-
-## Agent implementation
-
-The Supervisor Agent is under:
+The agent uses **defense in depth**. User messages are validated before reaching the LLM, while high-risk tool calls are validated again by deterministic application code.
 
 ```text
-src/main/java/com/rj1399/customersupport/agent/
-├── AgentController.java
-├── AgentOrchestrator.java
-├── AgentTrace.java
-├── AgentTraceStore.java
-└── CustomerSupportAgentTools.java
+Customer input
+      |
+      v
+PromptInjectionGuardrail
+      |
+      +---- BLOCKED
+      |
+      v
+     LLM
+      |
+      +---- RAG / Tool results are UNTRUSTED DATA
+      |
+      v
+ToolExecutionGuardrail
+      |
+      v
+Backend policy + authorization
+      |
+      +---- HITL approval when required
+      |
+      v
+Financial mutation
 ```
 
-### Agent endpoints
+### Input protection
 
-Synchronous resolution:
+`PromptInjectionGuardrail` currently enforces:
+
+- Empty-input validation
+- 8,000-character input limit
+- Detection of common prompt-injection and jailbreak patterns
+- Blocking before the model is invoked
+
+### Untrusted content boundary
+
+Retrieved RAG documents and tool results are treated as **data, never instructions**. A retrieved document cannot override system rules or authorize a financial mutation.
+
+### High-risk tool protection
+
+Refund operations are treated as high risk. The agent should request a refund through `requestRefund()`, while deterministic backend code controls policy validation, payment validation, idempotency, and human approval.
+
+`createRefund()` must never be used to bypass the approval workflow.
+
+See [`docs/guardrails.md`](docs/guardrails.md) for the detailed security model, implementation, limitations, and production-hardening recommendations.
+
+## Responsibility boundary
+
+### Agents own
+
+- Customer intent understanding
+- Planning and delegation
+- Tool selection and sequencing
+- Knowledge retrieval
+- Customer-facing response generation
+
+### Backend owns
+
+- Database state
+- Business rules and validation
+- Refund eligibility
+- Payment and delivery state
+- Idempotency
+- Financial mutations
+- Persistence of refunds and support tickets
+- Security and authorization guardrails
+
+RAG is also **not authoritative** for state-changing decisions. Retrieved policy content is context; deterministic Java services decide whether an action is actually allowed.
+
+## Single Agent vs Multi-Agent
+
+The UI supports both architectures so the same customer request can be compared directly.
+
+```text
+Single Agent
+    |
+    v
+Agent Orchestrator -> Tools
+
+Multi-Agent
+    |
+    v
+Supervisor
+    +--> Order Investigation Agent
+    +--> Resolution Agent
+    +--> Communication Agent
+```
+
+### Single-agent endpoint
 
 ```http
 POST /api/agent/resolve
-Content-Type: application/json
 ```
 
-Live Server-Sent Events (SSE) resolution:
+### Multi-agent endpoint
 
 ```http
-POST /api/agent/resolve/stream
-Content-Type: application/json
-Accept: text/event-stream
+POST /api/multi-agent/resolve
 ```
 
-Example:
+See the detailed architecture guide: [`docs/multi-agent.md`](docs/multi-agent.md).
 
-```bash
-curl -X POST http://localhost:8080/api/agent/resolve \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "message": "My order 1002 is five days late. I want a refund."
-  }'
-```
+## Agentic RAG
 
-The intended execution is:
+Policy knowledge is stored as Markdown files under:
 
 ```text
-User
- |
- v
-Supervisor Agent
- |
- +--> getOrder(1002)
- |
- +--> getDeliveryStatus(1002)
- |
- +--> getPayment(1002)
- |
- +--> checkRefundPolicy(1002)
- |
- +--> createRefund(1002)       <-- only when backend policy allows it
- |
- v
-Final customer response
+src/main/resources/knowledge/
+├── refund-policy.md
+├── shipping-policy.md
+├── cancellation-policy.md
+├── payment-policy.md
+└── damaged-item-policy.md
 ```
 
-The LLM can choose and sequence tools, but it cannot bypass the service layer.
-
-## Live observability
-
-The agent exposes a live execution stream so clients can see what the agent is doing while the model/tool loop is running. The stream uses **Server-Sent Events (SSE)** and is backed by an in-memory `AgentTraceStore`.
-
-A stream execution emits trace events such as:
-
-| Event | Meaning |
-|---|---|
-| `AGENT_STARTED` | Agent execution has started |
-| `MODEL_REQUEST` | Request is being sent to OpenAI |
-| `MODEL_WAITING` | OpenAI/model-tool loop is still running |
-| `TOOL_REQUEST` | A backend tool is being invoked |
-| `TOOL_RESPONSE` | Tool returned successfully |
-| `TOOL_ERROR` | Tool invocation failed |
-| `MODEL_RESPONSE` | OpenAI returned the final model response |
-| `AGENT_COMPLETED` | Agent execution completed |
-| `AGENT_ERROR` | Agent execution failed |
-
-Example SSE request:
-
-```bash
-curl -N -X POST http://localhost:8080/api/agent/resolve/stream \
-  -H 'Content-Type: application/json' \
-  -H 'Accept: text/event-stream' \
-  -d '{
-    "message": "My order 1002 is five days late. I want a refund."
-  }'
-```
-
-The stream can surface progress similar to:
+At startup:
 
 ```text
-data: {"type":"AGENT_STARTED",...}
-
-data: {"type":"MODEL_REQUEST",...}
-
-data: {"type":"MODEL_WAITING",...}
-
-data: {"type":"TOOL_REQUEST","name":"getOrder",...}
-
-data: {"type":"TOOL_RESPONSE","name":"getOrder",...}
-
-data: {"type":"TOOL_REQUEST","name":"checkRefundPolicy",...}
-
-data: {"type":"TOOL_RESPONSE","name":"checkRefundPolicy",...}
-
-data: {"type":"MODEL_RESPONSE",...}
-
-data: {"type":"AGENT_COMPLETED",...}
+Policy Markdown
+      |
+      v
+Spring AI Document
+      |
+      v
+TokenTextSplitter
+      |
+      v
+OpenAI text-embedding-3-small
+      |
+      v
+PostgreSQL / PGVector
 ```
 
-This provides operational visibility without exposing hidden model reasoning, prompts, credentials, or chain-of-thought.
+At runtime:
 
-## Spring AI tool layer
+```text
+Resolution Agent
+      |
+      +--> searchKnowledgeBase(query)
+                 |
+                 v
+            Query embedding
+                 |
+                 v
+              PGVector
+                 |
+                 v
+          Relevant policy chunks
+                 |
+                 v
+          Grounded resolution
+                 |
+                 +--> checkRefundPolicy()
+                 |
+                 +--> requestRefund()
+```
 
-`CustomerSupportAgentTools` exposes deterministic capabilities using Spring AI `@Tool` methods:
+Detailed explanation: [`docs/rag.md`](docs/rag.md).
+
+### Important RAG safety boundary
+
+```text
+RAG context
+     |
+     v
+checkRefundPolicy()
+     |
+     v
+Deterministic backend decision
+     |
+   +---+---+
+   |       |
+eligible rejected
+   |       |
+   v       v
+refund   explain
+```
+
+A retrieved document cannot directly authorize a financial mutation.
+
+## Tool Calling
+
+Business capabilities are exposed as typed Spring AI tools. Examples include:
 
 | Tool | Purpose |
 |---|---|
@@ -202,89 +276,100 @@ This provides operational visibility without exposing hidden model reasoning, pr
 | `getOrder` | Retrieve order state |
 | `getDeliveryStatus` | Determine delivery status and delay |
 | `getPayment` | Verify payment state and amount |
-| `checkRefundPolicy` | Get the authoritative refund decision |
-| `createRefund` | Execute a controlled, idempotent refund |
+| `searchKnowledgeBase` | Retrieve relevant policy context |
+| `checkRefundPolicy` | Get authoritative refund eligibility |
+| `requestRefund` | Request a controlled refund through policy/HITL checks |
+| `createRefund` | Controlled backend refund execution |
 | `getSupportTicket` | Retrieve an existing support ticket |
 
-The tools delegate to `CustomerSupportService`; the agent never accesses JPA repositories directly.
+The agent never gets direct JPA repository access. See [`docs/tool-calling.md`](docs/tool-calling.md).
+
+## Live Observability
+
+Execution tracing provides operational visibility into the model/tool workflow without exposing hidden reasoning or chain-of-thought.
+
+Events include:
+
+```text
+AGENT_STARTED
+MODEL_REQUEST
+MODEL_WAITING
+TOOL_REQUEST
+TOOL_RESPONSE
+TOOL_ERROR
+KNOWLEDGE_SEARCH
+KNOWLEDGE_RESPONSE
+MODEL_RESPONSE
+AGENT_COMPLETED
+AGENT_ERROR
+```
+
+The UI can show execution traces and durations, while SSE provides live execution events for the streaming flow.
+
+See [`docs/observability.md`](docs/observability.md).
+
+## UI
+
+The web UI provides:
+
+- Single Agent / Multi-Agent architecture selector
+- Customer chat interface
+- Response Markdown formatting
+- Loading state while an API request is running
+- Tool and knowledge execution trace presentation
+
+See [`docs/ui.md`](docs/ui.md).
 
 ## OpenAI configuration
-
-The `dev` branch uses **OpenAI** rather than Gemini.
 
 Create a local `.env` file:
 
 ```env
 OPENAI_API_KEY=your-openai-api-key
 OPEN_AI_MODEL=gpt-5-mini
+OPEN_AI_EMBEDDING_MODEL=text-embedding-3-small
 AGENT_ENABLED=true
+RAG_ENABLED=true
+RAG_TOP_K=4
+RAG_SIMILARITY_THRESHOLD=0.60
 ```
 
-`.env` is ignored by Git and must never be committed.
+`.env` must never be committed.
 
-Then start the application:
+## Run locally
+
+### Docker Compose
+
+The local stack uses PGVector-enabled PostgreSQL:
+
+```text
+pgvector/pgvector:pg17
+```
+
+Start:
 
 ```bash
 docker compose up --build
 ```
 
-The Docker Compose configuration passes the OpenAI configuration into the application:
+If an existing local PostgreSQL volume was created before PGVector was introduced, recreate the demo database:
 
-```yaml
-OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-OPEN_AI_MODEL: ${OPEN_AI_MODEL:-gpt-5-mini}
-AGENT_ENABLED: ${AGENT_ENABLED:-true}
+```bash
+docker compose down -v
+docker compose up --build
 ```
 
-The agent endpoint is feature-gated. If `AGENT_ENABLED=false`, `/api/agent/resolve` and `/api/agent/resolve/stream` are not registered.
+> **Warning:** `docker compose down -v` deletes the local demo database volume. Never use it against production data.
 
-## Agentic use case
+## Example request
 
-Example customer request:
-
-> "My order 1002 is five days late. I want a refund."
-
-The agent should investigate first rather than immediately issuing a refund.
-
-```text
-Customer message
-      |
-      v
-Supervisor Agent
-      |
-      +--> Order information
-      |
-      +--> Delivery status
-      |
-      +--> Payment status
-      |
-      +--> Refund policy
-      |
-      +--> Decision
-             |
-             +--> Eligible + safe --> Create refund
-             |
-             +--> Not eligible --> Explain why
-             |
-             +--> High risk --> Human approval
+```bash
+curl -X POST http://localhost:8080/api/multi-agent/resolve \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "message": "My order 1002 is five days late. I want a refund."
+  }'
 ```
-
-For demo order `1002`, the backend data represents an order that is five days late and has a captured payment.
-
-## Backend API / tool contracts
-
-```text
-GET  /api/customers/{customerId}
-GET  /api/orders/{orderNumber}
-GET  /api/orders/{orderNumber}/delivery
-GET  /api/orders/{orderNumber}/payment
-GET  /api/refund-policy/{orderNumber}
-POST /api/refunds
-GET  /api/tickets/{ticketNumber}
-POST /api/tickets
-```
-
-The agent uses the typed tool layer rather than calling these HTTP endpoints itself.
 
 ## Business rules
 
@@ -297,215 +382,78 @@ The backend enforces:
 - Refund creation requires an idempotency key.
 - Repeating a refund request with the same idempotency key returns the existing refund.
 
-These rules are deterministic. OpenAI may reason about the customer's request, but it cannot override these rules.
-
-## Tool failure and resilience roadmap
-
-The agent should distinguish retryable and non-retryable failures:
-
-```text
-Tool call
- |
- +--> 2xx ---------------------> Continue reasoning
- |
- +--> timeout / 5xx -----------> Bounded retry + backoff
- |
- +--> 429 ----------------------> Rate-limit handling
- |
- +--> 4xx validation -----------> Do not blindly retry
- |
- +--> repeated failure ---------> Graceful fallback / escalation
-```
-
-OpenAI provider failures should similarly use bounded retries and timeouts. Authentication and malformed-request errors should not be retried blindly.
+These rules are deterministic. OpenAI, RAG, and user-provided instructions cannot override them.
 
 ## Safety boundary
 
-The agent must not translate natural-language reasoning directly into unrestricted database mutations.
-
-For a refund:
+For financial actions:
 
 ```text
-OpenAI reasoning
-      |
-      v
-Refund Policy Tool
-      |
-      v
-Deterministic eligibility check
-      |
-      +---- Not eligible ------> Explain to customer
-      |
-      +---- Eligible ----------> Refund Tool
-                                    |
-                                    +--> Idempotency check
-                                    +--> Business validation
-                                    +--> Persist refund
+LLM / RAG
+   |
+   v
+requestRefund()
+   |
+   v
+Guardrails
+   |
+   v
+CustomerSupportService
+   |
+   +--> validation
+   +--> payment state
+   +--> delay threshold
+   +--> refund limit
+   +--> idempotency
+   +--> HITL approval when required
+   |
+   v
+createRefund()
 ```
 
-For higher-risk actions, the planned architecture includes a human-in-the-loop approval step.
+See [`docs/safety-boundary.md`](docs/safety-boundary.md) and [`docs/guardrails.md`](docs/guardrails.md).
 
-## Token and cost control roadmap
+## Project learning roadmap
 
-The agent should use the LLM for reasoning rather than work ordinary backend code can perform more cheaply.
+### Implemented
 
-Planned controls:
+- Tool calling
+- Single-agent orchestration
+- Multi-agent delegation
+- Agent-to-agent task/result contracts
+- PostgreSQL-backed business tools
+- OpenAI integration
+- Agentic RAG
+- Embeddings + PGVector
+- Policy document ingestion
+- Live execution tracing
+- SSE observability
+- Single vs Multi-Agent UI
+- Human-in-the-loop refund approval
+- Guardrails and prompt-injection defense
 
-- Keep tool responses small and focused.
-- Fetch only information required for the current decision.
-- Keep system instructions concise.
-- Avoid repeatedly sending the same order/payment context.
-- Route deterministic operations directly to backend services.
-- Track input/output tokens and model cost per agent execution.
-- Add model routing for simple versus complex requests.
+### Next
 
-## Memory and RAG roadmap
+- Agent memory
+- Agent evaluation / RAG quality measurement
+- Retry, timeout, and circuit-breaker strategies
+- MCP
+- Cost and latency optimization
+- LangChain4j implementation for framework comparison
 
-Future iterations can add:
-
-- Conversation memory
-- Customer interaction history
-- Refund/support policy documents
-- RAG over support knowledge
-- Previous-resolution retrieval
-
-Memory will remain separate from transactional business state.
-
-## Demo data
-
-The Flyway seed migration creates:
-
-- Customer `Rajesh Kumar`
-- Customer `Priya Sharma`
-- Order `1001` - delivered
-- Order `1002` - intentionally five days late
-- Order `1003` - currently shipping
-- Payments for the demo orders
-- Support ticket data
-
-## Run locally
-
-### Docker Compose
-
-```bash
-docker compose up --build
-```
-
-The API is available at:
+## Documentation map
 
 ```text
-http://localhost:8080
+docs/
+├── README.md              # Feature documentation index
+├── tool-calling.md        # Tool calling
+├── single-agent.md        # Single-agent orchestration
+├── multi-agent.md         # Supervisor + specialist agents
+├── rag.md                 # Agentic RAG + PGVector
+├── observability.md       # Trace events + SSE
+├── ui.md                  # Demo UI and architecture selector
+├── safety-boundary.md     # Deterministic backend safety model
+└── guardrails.md          # Prompt-injection defense and guardrails
 ```
 
-Health check:
-
-```bash
-curl http://localhost:8080/actuator/health
-```
-
-### Fresh local database
-
-If you need to recreate the demo database:
-
-```bash
-./scripts/reset-local-db.sh
-```
-
-This removes the local PostgreSQL Docker volume so Flyway can recreate the schema and seed data.
-
-## Try the backend tools
-
-```bash
-curl http://localhost:8080/api/orders/1002
-```
-
-```bash
-curl http://localhost:8080/api/orders/1002/delivery
-```
-
-```bash
-curl http://localhost:8080/api/orders/1002/payment
-```
-
-```bash
-curl http://localhost:8080/api/refund-policy/1002
-```
-
-Direct refund API:
-
-```bash
-curl -X POST http://localhost:8080/api/refunds \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "orderNumber": "1002",
-    "reason": "Delivery delayed beyond policy threshold",
-    "idempotencyKey": "agent-demo-1002-refund-1"
-  }'
-```
-
-Repeat the same request with the same idempotency key to verify duplicate protection.
-
-## Try the Agentic AI flow
-
-1. Configure `.env` with an OpenAI API key.
-2. Set `AGENT_ENABLED=true`.
-3. Start the application with Docker Compose.
-4. Send a natural-language customer request:
-
-```bash
-curl -X POST http://localhost:8080/api/agent/resolve \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "message": "My order 1002 is five days late. I want a refund."
-  }'
-```
-
-For live progress, use the SSE endpoint:
-
-```bash
-curl -N -X POST http://localhost:8080/api/agent/resolve/stream \
-  -H 'Content-Type: application/json' \
-  -H 'Accept: text/event-stream' \
-  -d '{
-    "message": "My order 1002 is five days late. I want a refund."
-  }'
-```
-
-The first version intentionally keeps the orchestration simple: one Supervisor Agent with deterministic domain tools. Additional specialized agents can be introduced when there is a clear responsibility boundary rather than creating agents artificially.
-
-## AWS EC2 deployment
-
-The application is packaged as a standard Spring Boot container and is intentionally deployable to a small EC2 instance without Kubernetes.
-
-```bash
-mvn clean package -DskipTests
-docker compose up -d --build
-```
-
-For production:
-
-- Do not commit API keys or database passwords.
-- Use EC2 environment/secret management for credentials.
-- Restrict security-group ports.
-- Put the application behind HTTPS/reverse proxy or an AWS load balancer.
-- Use managed PostgreSQL such as Amazon RDS instead of the demo PostgreSQL container.
-
-## Agent implementation roadmap
-
-1. Supervisor Agent + typed tools — **implemented**
-2. OpenAI provider integration — **implemented**
-3. Tool execution tracing — **implemented**
-4. Live SSE observability — **implemented**
-5. Bounded retries and timeouts
-6. Human approval for high-risk actions
-7. Conversation memory
-8. RAG over support policies
-9. Token/cost tracking
-10. Agent evaluation dataset
-11. Multi-agent specialization where justified
-
-## Design principle
-
-> **Backend owns truth. Agent owns reasoning.**
-
-The backend is the system of record and enforces business invariants. OpenAI is a reasoning and orchestration component. This separation is intentional and is the core architectural decision of the project.
+For the detailed explanation of any feature, start from [`docs/README.md`](docs/README.md).

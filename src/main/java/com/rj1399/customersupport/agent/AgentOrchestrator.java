@@ -36,6 +36,7 @@ public class AgentOrchestrator {
     private final ChatClient chatClient;
     private final CustomerSupportAgentTools tools;
     private final AgentTraceStore traceStore;
+    private final PromptInjectionGuardrail inputGuardrail;
 
     public AgentOrchestrator(
             ChatClient.Builder chatClientBuilder,
@@ -44,6 +45,7 @@ public class AgentOrchestrator {
         this.chatClient = chatClientBuilder.build();
         this.tools = tools;
         this.traceStore = traceStore;
+        this.inputGuardrail = inputGuardrail;
     }
 
     public AgentResult resolve(String message) {

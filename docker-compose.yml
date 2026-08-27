@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17-alpine
+    image: pgvector/pgvector:pg17
     container_name: customer-support-postgres
     environment:
       POSTGRES_DB: customer_support
@@ -28,8 +28,12 @@ services:
       DB_PASSWORD: customer_support
       SERVER_PORT: 8080
       AGENT_ENABLED: ${AGENT_ENABLED:-true}
+      RAG_ENABLED: ${RAG_ENABLED:-true}
+      RAG_TOP_K: ${RAG_TOP_K:-4}
+      RAG_SIMILARITY_THRESHOLD: ${RAG_SIMILARITY_THRESHOLD:-0.60}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPEN_AI_MODEL: ${OPEN_AI_MODEL:-gpt-5-mini}
+      OPEN_AI_EMBEDDING_MODEL: ${OPEN_AI_EMBEDDING_MODEL:-text-embedding-3-small}
     ports:
       - "8080:8080"
 
