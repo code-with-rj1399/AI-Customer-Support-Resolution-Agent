@@ -39,15 +39,14 @@ Agent
       Relevant policy chunks
 ```
 
-## Policy documents
+## Current policy documents
 
-Stored under `src/main/resources/knowledge/`:
+The current knowledge directory, `src/main/resources/knowledge/`, contains:
 
-- refund policy
-- shipping policy
-- cancellation policy
-- payment policy
-- damaged-item policy
+- `refund-policy.md`
+- `payment-policy.md`
+
+Additional policy documents can be added later as the RAG corpus grows, but they should not be documented as implemented until they exist in the repository.
 
 ## Critical safety boundary
 
